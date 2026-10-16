@@ -103,7 +103,7 @@ export function CertificateChain({ steps }: CertificateChainProps) {
                           target="_blank"
                           rel="noopener noreferrer"
                           aria-label={`${step.hashLabel} ${step.hash} — opens Stellar explorer`}
-                          className="flex items-center gap-1 break-all font-mono text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 rounded dark:text-blue-400"
+                          className="flex items-center gap-1 break-all font-mono text-blue-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-1 rounded dark:text-blue-400"
                         >
                           {step.hash.slice(0, 16)}…
                           <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />

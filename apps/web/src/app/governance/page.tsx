@@ -143,7 +143,7 @@ function VoteButtons({
         disabled={disabled || !!userVote}
         aria-pressed={active}
         aria-label={`Vote ${label}`}
-        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
           active
             ? `${color} border-transparent`
             : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
@@ -380,7 +380,7 @@ function CreateProposalForm({ onCreated }: { onCreated: () => void }) {
           type="submit"
           disabled={mutation.isPending}
           aria-busy={mutation.isPending}
-          className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           {mutation.isPending ? 'Submitting…' : connected ? 'Submit Proposal' : 'Connect Wallet & Submit'}
@@ -485,7 +485,7 @@ export default function GovernancePage() {
           onClick={() => setShowForm((v) => !v)}
           aria-expanded={showForm}
           aria-controls="create-proposal-section"
-          className="flex items-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+          className="flex items-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           New Proposal

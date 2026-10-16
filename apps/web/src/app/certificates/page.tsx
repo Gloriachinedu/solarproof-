@@ -212,7 +212,7 @@ export default function CertificatesPage() {
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Cert ID or meter ID…"
                 aria-label="Search by certificate ID or meter ID"
-                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <button
@@ -232,7 +232,7 @@ export default function CertificatesPage() {
               id="status-filter"
               value={status}
               onChange={(e) => pushParams({ status: e.target.value })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -251,7 +251,7 @@ export default function CertificatesPage() {
               value={dateFrom}
               onChange={(e) => pushParams({ date_from: e.target.value })}
               aria-label="Filter from date"
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           <div className="flex items-center gap-1.5">
@@ -264,7 +264,7 @@ export default function CertificatesPage() {
               value={dateTo}
               onChange={(e) => pushParams({ date_to: e.target.value })}
               aria-label="Filter to date"
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
 
@@ -331,7 +331,7 @@ export default function CertificatesPage() {
                       aria-label="Select all active certificates"
                       checked={activeData.length > 0 && activeData.every((c) => selected.has(c.id))}
                       onChange={toggleSelectAll}
-                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus-visible:ring-green-500"
                     />
                   </th>
                   {['Certificate ID', 'Meter ID', 'kWh', 'Issued', 'Status', 'Action'].map((h) => (
@@ -362,7 +362,7 @@ export default function CertificatesPage() {
                             aria-label={`Select certificate ${cert.id.slice(0, 8)}`}
                             checked={selected.has(cert.id)}
                             onChange={() => toggleSelect(cert.id)}
-                            className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            className="h-4 w-4 rounded border-gray-300 text-green-600 focus-visible:ring-green-500"
                           />
                         )}
                       </td>
