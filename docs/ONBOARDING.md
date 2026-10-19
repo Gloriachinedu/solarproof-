@@ -4,6 +4,19 @@ Welcome to SolarProof. This guide gets you from zero to a running local environm
 
 ---
 
+## API Documentation
+
+The interactive API reference (Swagger UI) is available in every deployed environment:
+
+| Environment | URL |
+|-------------|-----|
+| Local dev   | http://localhost:3000/api/docs/ui |
+| Staging     | https://solarproof-staging.vercel.app/api/docs/ui |
+
+The raw OpenAPI spec (YAML) is served at `/api/docs`.
+
+---
+
 ## Prerequisites
 
 Install the following before cloning:
