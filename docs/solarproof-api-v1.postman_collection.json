@@ -1,0 +1,339 @@
+{
+  "info": {
+    "name": "SolarProof API v1",
+    "description": "All /api/v1/ endpoints for the SolarProof platform. Set the `baseUrl` variable to your target environment.",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://solarproof.vercel.app", "type": "string" },
+    { "key": "jwt", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@coop.example\",\n  \"password\": \"s3cr3t!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/auth/logout"
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/auth/refresh"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Meters",
+      "item": [
+        {
+          "name": "List Meters",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/meters"
+          }
+        },
+        {
+          "name": "Register Meter",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/v1/meters",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Roof Panel A\",\n  \"serial_number\": \"METER-001\",\n  \"pubkey_hex\": \"aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899\",\n  \"meter_group\": \"rooftop\",\n  \"tags\": [\"phase-1\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Meter",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/meters/:id",
+            "variable": [{ "key": "id", "value": "" }]
+          }
+        },
+        {
+          "name": "Delete Meter",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/meters/:id",
+            "variable": [{ "key": "id", "value": "" }]
+          }
+        },
+        {
+          "name": "Revoke Meter API Key",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/meters/:id/revoke",
+            "variable": [{ "key": "id", "value": "" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Readings",
+      "item": [
+        {
+          "name": "Submit Reading",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/readings",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"meter_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"kwh\": 12.5,\n  \"timestamp\": 1745366400,\n  \"signature_hex\": \"<128-hex-chars>\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Submit Batch Readings",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/readings/batch",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"readings\": [\n    {\n      \"meter_id\": \"uuid\",\n      \"kwh\": 12.5,\n      \"timestamp\": 1745366400,\n      \"signature_hex\": \"<128-hex-chars>\"\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Certificates",
+      "item": [
+        {
+          "name": "List Certificates",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/certificates?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "certificates"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "active", "disabled": true },
+                { "key": "date_from", "value": "2026-01-01", "disabled": true },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire Certificate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/certificates/:id/retire",
+            "variable": [{ "key": "id", "value": "" }]
+          }
+        },
+        {
+          "name": "Export I-REC",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/certificates/:id/irec-export",
+            "variable": [{ "key": "id", "value": "" }]
+          }
+        },
+        {
+          "name": "Transfer Certificate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/v1/certificates/:id/transfer",
+            "variable": [{ "key": "id", "value": "" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient_cooperative_id\": \"uuid\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cooperative",
+      "item": [
+        {
+          "name": "Get My Cooperative",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/cooperative/me"
+          }
+        },
+        {
+          "name": "Get Cooperative Stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cooperative/stats?granularity=month",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "cooperative", "stats"],
+              "query": [
+                { "key": "granularity", "value": "month" },
+                { "key": "date_from", "value": "", "disabled": true },
+                { "key": "date_to", "value": "", "disabled": true }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Governance",
+      "item": [
+        {
+          "name": "List Proposals",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/governance"
+          }
+        },
+        {
+          "name": "Create Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/v1/governance",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Reduce platform fee to 1%\",\n  \"description\": \"Proposal to lower the cooperative fee from 2% to 1%.\",\n  \"days\": 14\n}"
+            }
+          }
+        },
+        {
+          "name": "Vote on Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/v1/governance/:id/vote",
+            "variable": [{ "key": "id", "value": "" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"choice\": \"for\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verify",
+      "item": [
+        {
+          "name": "Verify Certificate",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/verify?id=<certificate-id-or-tx-hash>",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "verify"],
+              "query": [{ "key": "id", "value": "<certificate-id-or-tx-hash>" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Log",
+      "item": [
+        {
+          "name": "Get Audit Log",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audit-log?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audit-log"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "event_type", "value": "", "disabled": true }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "List Webhooks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwt}}" }],
+            "url": "{{baseUrl}}/api/v1/webhooks"
+          }
+        },
+        {
+          "name": "Register Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/v1/webhooks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://your-system.example/webhooks/solar\",\n  \"events\": [\"reading.anchored\", \"certificate.retired\"],\n  \"secret\": \"whsec_your-secret-here\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness Check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/health"
+          }
+        }
+      ]
+    }
+  ]
+}
