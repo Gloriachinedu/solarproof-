@@ -16,6 +16,7 @@ Install the following before cloning:
 | wasm32 target | — | `rustup target add wasm32-unknown-unknown` |
 | Stellar CLI | latest | `cargo install --locked stellar-cli --features opt` |
 | Docker + Compose | v24+ | [docs.docker.com](https://docs.docker.com/get-docker/) *(optional, recommended)* |
+| PKCS#11 library | platform-specific | Required only for **hardware meter signing** — see [HSM setup](#hardware-meter-signing-hsmpkcs11) below |
 
 Verify:
 
@@ -316,6 +317,100 @@ curl "https://friendbot.stellar.org?addr=$(stellar keys address deployer)"
 
 **Docker compose fails to start Supabase**
 → Ensure ports 5432 and 54321 are free: `lsof -i :5432`. Stop any local Postgres instances first.
+
+---
+
+## Hardware meter signing (HSM/PKCS#11)
+
+Production meters should sign readings with a Hardware Security Module (HSM) rather than a plain key file. This section covers the PKCS#11 prerequisites and how to test them locally.
+
+> For the full device-registration and key-rotation API reference, see [docs/HSM_ONBOARDING.md](./HSM_ONBOARDING.md).
+
+### When is this required?
+
+| Scenario | Signing method |
+|---|---|
+| Local development / simulation | Software key (`meter-key.json` + `send-reading.mjs`) |
+| Staging / production meters | Hardware HSM (`send-reading-pkcs11.mjs`) |
+
+### PKCS#11 library dependency
+
+The script [`scripts/send-reading-pkcs11.mjs`](../scripts/send-reading-pkcs11.mjs) requires:
+
+1. **`pkcs11js`** npm package — install once in the repo:
+
+   ```bash
+   pnpm add pkcs11js
+   ```
+
+2. **YKCS11 middleware** (YubiKey 5 Series) — the PKCS#11 shared library that bridges `pkcs11js` to your YubiKey:
+
+   ```bash
+   # Ubuntu / Debian
+   sudo apt-get install ykcs11
+
+   # macOS (Homebrew)
+   brew install yubico-piv-tool
+   ```
+
+   Confirm the library path after installation:
+
+   ```bash
+   # Linux
+   ls /usr/lib/x86_64-linux-gnu/libykcs11.so
+
+   # macOS (Apple Silicon)
+   ls /opt/homebrew/lib/libykcs11.dylib
+   ```
+
+3. **YubiKey PIV slot 9c** must contain an **Ed25519 keypair** generated on-device:
+
+   ```bash
+   # Generate the key on the YubiKey (private key never leaves the device)
+   ykman piv keys generate --algorithm ED25519 9c pubkey.pem
+
+   # Export the 32-byte raw public key as hex
+   openssl pkey -in pubkey.pem -pubin -outform DER | tail -c 32 | xxd -p -c 32
+   ```
+
+   Copy the printed hex string — this is the `pubkey_hex` you register in Supabase.
+
+### Environment variables
+
+Set these before running `send-reading-pkcs11.mjs`:
+
+```bash
+export PKCS11_LIB="/usr/lib/x86_64-linux-gnu/libykcs11.so"  # adjust path for your OS
+export PKCS11_PIN="123456"                                    # YubiKey user PIN
+```
+
+### Sending a hardware-signed reading
+
+```bash
+node scripts/send-reading-pkcs11.mjs \
+  --meter-id <uuid-registered-in-supabase> \
+  --kwh 12.5 \
+  --api http://localhost:3000
+```
+
+Expected output:
+
+```
+Reading hash: <hex>
+HSM Signature generated successfully.
+Sending reading to API: { meterId: '...', kwh: 12.5, timestamp: ... }
+✓ Success: { reading_id: '...', anchor_tx_hash: '...', mint_tx_hash: '...' }
+```
+
+### Troubleshooting PKCS#11
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Error: PKCS11_LIB … must be set` | Env var not exported | `export PKCS11_LIB=…` before running the script |
+| `No PKCS#11 slots found` | YubiKey not inserted or driver not loaded | Insert YubiKey and confirm `ykman list` shows the device |
+| `Private key handle not found in slot 9c` | No key generated in PIV slot 9c | Run `ykman piv keys generate --algorithm ED25519 9c pubkey.pem` |
+| `CKR_PIN_INCORRECT` | Wrong PIN | Default YubiKey PIN is `123456`; change with `ykman piv access change-pin` |
+| `libykcs11.so: cannot open shared object file` | Library not installed or wrong path | Install `ykcs11` package and verify path with `find /usr -name 'libykcs11*'` |
 
 ---
 
