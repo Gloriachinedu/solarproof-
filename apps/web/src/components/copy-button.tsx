@@ -49,7 +49,7 @@ export function CopyButton({ value, label, className = '', iconSize = 14, onCopi
       aria-label={label || `Copy ${value}`}
       aria-pressed={copied}
       title={copied ? 'Copied!' : 'Copy to clipboard'}
-      className={`inline-flex items-center gap-1 rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 ${className}`}
+      className={`inline-flex items-center gap-1 rounded p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-1 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 ${className}`}
     >
       {copied ? (
         <Check className="text-green-600 dark:text-green-400" style={{ width: iconSize, height: iconSize }} aria-hidden="true" />

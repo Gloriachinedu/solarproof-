@@ -47,5 +47,10 @@ jobs:
         run: cargo test --all
         working-directory: apps/contracts
 
+      - name: Run property-based tests (energy_token)
+        run: cargo test --manifest-path apps/contracts/proptest/Cargo.toml
+        env:
+          PROPTEST_CASES: "500"
+
       - name: Verify contract snapshots are unchanged
         run: bash scripts/check-contract-snapshots.sh
