@@ -491,13 +491,15 @@ export default function MetersPage() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              <tbody
+                className="divide-y divide-gray-100 dark:divide-gray-800"
+                aria-busy={isLoading}
+                aria-live="polite"
+              >
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
-                      Loading…
-                    </td>
-                  </tr>
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <TableRowSkeleton key={i} cols={6} />
+                  ))
                 ) : meters && meters.length > 0 ? (
                   meters.map((m) => (
                     <tr
