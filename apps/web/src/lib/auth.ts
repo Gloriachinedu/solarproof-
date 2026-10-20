@@ -65,15 +65,28 @@ export async function revokeToken(accessToken: string): Promise<void> {
   await db.from('revoked_tokens').upsert({ jti, expires_at: expiresAt })
 }
 
+// Cookie name that /api/auth/login sets with the access token.
+// Must stay in sync with the name used in the login/logout route handlers.
+const ACCESS_TOKEN_COOKIE = 'sp_access_token'
+
 /**
- * Extract and validate the Bearer JWT from the `Authorization` header.
+ * Extract and validate the Bearer JWT from either:
+ *   1. The `sp_access_token` HttpOnly cookie (set by /api/auth/login), or
+ *   2. The `Authorization: Bearer <token>` header (for API / non-browser clients).
+ *
+ * Cookie auth is preferred — it prevents JavaScript from accessing the token
+ * and mitigates XSS token theft (issue #113).
+ *
  * Also checks the revocation list before accepting the token.
  */
 export async function requireAuth(
   req: NextRequest
 ): Promise<{ user: { id: string; email?: string }; accessToken: string; cooperativeId: string } | NextResponse> {
+  // Prefer HttpOnly cookie over Authorization header.
+  const cookieToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value ?? null
   const authHeader = req.headers.get('authorization') ?? ''
-  const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const accessToken = cookieToken ?? headerToken
 
   if (!accessToken) {
     return NextResponse.json({ error: 'Missing Authorization header' }, { status: 401 })

@@ -71,7 +71,7 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(401)
   })
 
-  it('returns 200 with token data on successful login', async () => {
+  it('returns 200 with ok:true on successful login', async () => {
     mockSupabase({
       access_token: 'access-123',
       refresh_token: 'refresh-456',
@@ -80,9 +80,56 @@ describe('POST /api/auth/login', () => {
     const res = await POST(makeRequest({ email: 'user@example.com', password: 'password123' }))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.access_token).toBe('access-123')
-    expect(body.refresh_token).toBe('refresh-456')
+    expect(body.ok).toBe(true)
     expect(body.expires_in).toBe(3600)
     expect(body.token_type).toBe('Bearer')
+  })
+
+  it('does NOT return raw tokens in the response body', async () => {
+    mockSupabase({
+      access_token: 'access-123',
+      refresh_token: 'refresh-456',
+      expires_in: 3600,
+    })
+    const res = await POST(makeRequest({ email: 'user@example.com', password: 'password123' }))
+    const body = await res.json()
+    // Tokens must not appear in the JSON body — they are in HttpOnly cookies only
+    expect(body.access_token).toBeUndefined()
+    expect(body.refresh_token).toBeUndefined()
+  })
+
+  /**
+   * AC: Unit test confirms cookie flags (HttpOnly, Secure in prod, SameSite=Strict).
+   *
+   * Next.js ResponseCookies are accessible via res.cookies after the route
+   * returns. We check the Set-Cookie header directly since the vitest environment
+   * does not fully emulate Next.js's cookie serialiser.
+   */
+  it('sets sp_access_token cookie with HttpOnly, SameSite=Strict flags', async () => {
+    mockSupabase({
+      access_token: 'access-abc',
+      refresh_token: 'refresh-xyz',
+      expires_in: 3600,
+    })
+    const res = await POST(makeRequest({ email: 'user@example.com', password: 'password123' }))
+    expect(res.status).toBe(200)
+
+    const setCookieHeader = res.headers.get('set-cookie') ?? ''
+    expect(setCookieHeader).toMatch(/sp_access_token=access-abc/)
+    expect(setCookieHeader.toLowerCase()).toMatch(/httponly/)
+    expect(setCookieHeader.toLowerCase()).toMatch(/samesite=strict/)
+  })
+
+  it('sets sp_refresh_token cookie with HttpOnly, SameSite=Strict flags', async () => {
+    mockSupabase({
+      access_token: 'access-abc',
+      refresh_token: 'refresh-xyz',
+      expires_in: 3600,
+    })
+    const res = await POST(makeRequest({ email: 'user@example.com', password: 'password123' }))
+    const setCookieHeader = res.headers.get('set-cookie') ?? ''
+    expect(setCookieHeader).toMatch(/sp_refresh_token=refresh-xyz/)
+    expect(setCookieHeader.toLowerCase()).toMatch(/httponly/)
+    expect(setCookieHeader.toLowerCase()).toMatch(/samesite=strict/)
   })
 })
