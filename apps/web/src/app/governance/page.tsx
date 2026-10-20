@@ -7,6 +7,7 @@ import { Vote, Plus, Clock, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp,
 import { useWallet } from '@/hooks/useWallet'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ProposalListSkeleton } from '@/components/skeleton'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 const PAGE_SIZES = [10, 25, 50] as const
 type PageSize = typeof PAGE_SIZES[number]

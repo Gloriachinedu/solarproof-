@@ -10,6 +10,7 @@ import { useToast } from '@/components/toast'
 import { useWallet } from '@/hooks/useWallet'
 import { WalletGate } from '@/components/wallet-gate'
 import { TableRowSkeleton } from '@/components/skeleton'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 const MAX_BULK = 100
 
@@ -404,6 +405,7 @@ export default function CertificatesPage() {
           </p>
         )}
 
+        <ErrorBoundary inline label="Certificate table">
         <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
           <div className="overflow-x-auto">
             <table
@@ -521,6 +523,7 @@ export default function CertificatesPage() {
             </table>
           </div>
         </div>
+        </ErrorBoundary>
 
         {retiring && (
           <RetireModal
