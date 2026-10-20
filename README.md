@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-blue?logo=stellar)](https://stellar.org)
 [![Tests](https://img.shields.io/badge/Tests-passing-brightgreen)](#)
+[![Uptime](https://img.shields.io/badge/Status-status.solarproof.app-brightgreen)](https://status.solarproof.app)
 
 **SolarProof** closes the gap between physical energy generation and verifiable on-chain certification. Every kilowatt-hour is signed at the meter, anchored to Stellar, and publicly auditable — no trust required.
 
@@ -160,8 +161,10 @@ Resource limits per service (defined in `docker-compose.yml`):
 node scripts/gen-meter-key.mjs
 
 # Send a signed reading
-node scripts/send-reading.mjs --kwh 12.5 --meter-key ./meter-key.json
+node scripts/send-reading.mjs --kwh 12.5 --key ./meter-key.json
 ```
+
+> **Building real hardware?** See the [Hardware Meter Integration Guide](docs/HARDWARE_METER_INTEGRATION_GUIDE.md) for the full onboarding quick-start, Ed25519 signing protocol, API specification, and meter certification checklist.
 
 ---
 
@@ -208,6 +211,22 @@ solarproof/
 | 1 | Signed meter readings + on-chain anchoring | ✅ Current |
 | 2 | Hardware HSM integration (YubiKey / TPM) | ✅ Completed |
 | 3 | I-REC / Energy Web / TIGR bridge (#609) | 🔮 Future |
+
+---
+
+## Status & Uptime Monitoring
+
+Production endpoint health is tracked at **[status.solarproof.app](https://status.solarproof.app)**, powered by [Upptime](https://upptime.js.org) via the `katecatherinaa/solarproof-status` repository.
+
+Monitored endpoints (1-minute check interval, 99.5% SLA):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health` | Application health |
+| `GET /verify` | Public verifier page |
+| `POST /api/readings` | Meter reading ingest |
+
+Alerts are sent to Slack on any outage. For incident response, see the [incident runbook](docs/runbooks/incident-response.md).
 
 ---
 

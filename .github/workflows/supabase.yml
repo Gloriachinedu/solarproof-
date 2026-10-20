@@ -9,6 +9,7 @@ on:
     branches: [main, develop]
     paths:
       - 'supabase/**'
+      - 'scripts/check-migration-drift.sh'
 
 jobs:
   validate:
@@ -39,6 +40,79 @@ jobs:
             fi
           done
           exit $missing
+
+      - name: Stop Supabase local stack
+        if: always()
+        run: supabase stop
+
+  migration-drift:
+    name: Migration drift detection
+    runs-on: ubuntu-latest
+    # Run on every PR that touches migrations or the drift-check script itself
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase local stack
+        run: supabase start
+
+      - name: Apply all migrations (forward)
+        run: supabase db reset
+
+      - name: Run migration drift check
+        env:
+          # Point to the local Supabase instance started above.
+          # supabase start exposes postgres on port 54322 by default.
+          DATABASE_URL: postgresql://postgres:postgres@localhost:54322/postgres
+        run: |
+          echo "### Migration Drift Detection" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if bash scripts/check-migration-drift.sh; then
+            echo "✅ No migration drift detected." >> "$GITHUB_STEP_SUMMARY"
+          else
+            EXIT_CODE=$?
+            echo "❌ Migration drift detected — see logs above." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Action required:** A migration file has been modified after being applied." >> "$GITHUB_STEP_SUMMARY"
+            echo "Create a new migration rather than editing an existing one." >> "$GITHUB_STEP_SUMMARY"
+            exit $EXIT_CODE
+          fi
+
+      - name: Verify rollback scripts exist for modified migrations
+        run: |
+          # Get the list of migration files changed in this PR
+          git fetch origin ${{ github.base_ref }} --depth=1
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'supabase/migrations/*.sql' | grep -v '/rollbacks/' || true)
+
+          if [[ -z "$CHANGED" ]]; then
+            echo "No migration files changed in this PR."
+            exit 0
+          fi
+
+          echo "Changed migrations in this PR:"
+          echo "$CHANGED"
+
+          missing=0
+          while IFS= read -r f; do
+            base=$(basename "$f" .sql)
+            down="supabase/migrations/rollbacks/${base}.down.sql"
+            if [ ! -f "$down" ]; then
+              echo "::error file=$f::Missing rollback script: $down"
+              missing=1
+            else
+              echo "✅ Rollback exists for $base"
+            fi
+          done <<< "$CHANGED"
+
+          if [[ $missing -eq 1 ]]; then
+            echo "::error::One or more migrations are missing rollback scripts. Add them to supabase/migrations/rollbacks/."
+            exit 1
+          fi
 
       - name: Stop Supabase local stack
         if: always()

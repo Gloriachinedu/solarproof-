@@ -117,3 +117,25 @@ export async function sendMintFailedEmail(to: string, params: {
   `)
   await sendEmail({ to, subject: `SolarProof: mint failed for reading ${params.reading_id.slice(0, 8)}`, html })
 }
+
+/**
+ * Send an account lockout notification email.
+ *
+ * Called after MAX_ATTEMPTS consecutive failed logins (issue #115).
+ * The email tells the user their account is temporarily locked and directs
+ * them to contact support or wait for the lockout to expire.
+ */
+export async function sendLockoutEmail(to: string): Promise<void> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://solarproof.app'
+  const html = baseTemplate('Account temporarily locked 🔒', `
+    <p>We detected multiple consecutive failed login attempts on your account.</p>
+    <p>For your security, your account has been <strong>temporarily locked for 15 minutes</strong>.</p>
+    <p>If this was you, please wait 15 minutes and try again.</p>
+    <p>If you did not make these attempts, we recommend
+      <a href="${appUrl}/settings?tab=security">changing your password</a>
+      immediately after regaining access.
+    </p>
+    <p>Need help? Contact <a href="mailto:support@solarproof.app">support@solarproof.app</a>.</p>
+  `)
+  await sendEmail({ to, subject: 'SolarProof: account temporarily locked', html })
+}

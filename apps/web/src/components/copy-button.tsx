@@ -20,7 +20,7 @@ async function writeToClipboard(text: string): Promise<void> {
   // Fallback for mobile browsers that don't support navigator.clipboard
   const el = document.createElement('textarea')
   el.value = text
-  el.style.cssText = 'position:fixed;top:0;left:0;opacity:0'
+  el.style.cssText = 'position:fixed;top:0;inset-inline-start:0;opacity:0'
   document.body.appendChild(el)
   el.focus()
   el.select()

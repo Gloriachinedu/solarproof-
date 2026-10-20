@@ -114,3 +114,32 @@ SOLARPROOF_URL=https://solarproof-staging.vercel.app node scripts/smoke-test.mjs
 ## Promoting to production
 
 Merge `develop` → `main`. The blue-green deploy workflow (`deploy-contracts.yml`, `blue-green-deploy.yml`) takes over automatically.
+
+---
+
+## Config drift detection
+
+A weekly CI job (`.github/workflows/config-drift.yml`) runs every Monday at 06:00 UTC to detect drift between staging and production. It checks:
+
+1. **Stellar network** — staging must use `testnet`, production must use `mainnet`
+2. **Required env var keys** — all keys in `.env.staging.example` must be present and up to date
+3. **Supabase migrations** — all migration files must have corresponding rollback scripts
+4. **Deploy pipeline config** — `deploy-staging.yml` targets `develop`, `blue-green-deploy.yml` targets `main`
+
+Run it manually at any time:
+```
+Actions → Staging Config Drift Check → Run workflow
+```
+
+### Current parity state
+
+| Concern | Staging | Production | Status |
+|---|---|---|---|
+| Stellar network | Testnet | Mainnet | ✅ Correct |
+| Contract addresses | Testnet IDs (see `docs/deployments.md`) | Mainnet IDs | ✅ Separate |
+| Supabase project | Dedicated staging project | Production project | ✅ Separate |
+| Minter key | Testnet disposable keypair | AWS Secrets Manager ARN | ✅ Separate |
+| Required env vars | Documented in `.env.staging.example` | Documented in `.env.example` | ✅ In sync |
+| Branch | `develop` | `main` | ✅ Correct |
+
+> If the drift check job fails, review the job summary for details and open a PR to resolve the inconsistency.

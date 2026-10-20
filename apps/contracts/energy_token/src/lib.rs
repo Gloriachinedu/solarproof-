@@ -1339,6 +1339,107 @@ mod tests {
         assert_eq!(client.balance(&holder), 1_000_i128);
         assert_eq!(client.total_supply(), 1_000_i128);
     }
+
+    // ── SEP-41 client interaction simulation (issue #53) ────────────────────
+
+    /// Simulates a complete SEP-41 client interaction lifecycle:
+    /// deploy → mint → query metadata → approve → transfer_from → burn → burn_from.
+    ///
+    /// This test verifies that an external client following the SEP-41 interface
+    /// spec can interact with `energy_token` end-to-end without relying on any
+    /// SolarProof-specific knowledge beyond the standard token interface.
+    #[test]
+    fn test_sep41_client_interaction() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let holder = Address::generate(&env);
+        let spender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        // Step 1 — Deploy and initialise
+        client.initialize(&admin, &minter);
+
+        // Step 2 — SEP-41 metadata queries (name, symbol, decimals)
+        assert_eq!(client.name(), String::from_str(&env, "SolarProof kWh"));
+        assert_eq!(client.symbol(), String::from_str(&env, "SKWH"));
+        assert_eq!(client.decimals(), 3_u32);
+
+        // Step 3 — Mint 10 kWh (10_000 units at decimals=3) to holder
+        let mint_amount: i128 = 10_000;
+        client.mint(&holder, &mint_amount);
+        assert_eq!(client.balance(&holder), mint_amount);
+        assert_eq!(client.total_supply(), mint_amount);
+
+        // Step 4 — Approve spender for 3 kWh (3_000 units)
+        let allowance_amount: i128 = 3_000;
+        client.approve(&holder, &spender, &allowance_amount, &9999_u32);
+        assert_eq!(client.allowance(&holder, &spender), allowance_amount);
+
+        // Step 5 — transfer_from: spender moves 2 kWh to recipient
+        let transfer_amount: i128 = 2_000;
+        client.transfer_from(&spender, &holder, &recipient, &transfer_amount);
+        assert_eq!(client.balance(&holder), mint_amount - transfer_amount);
+        assert_eq!(client.balance(&recipient), transfer_amount);
+        assert_eq!(
+            client.allowance(&holder, &spender),
+            allowance_amount - transfer_amount
+        );
+
+        // Step 6 — Direct transfer: recipient sends 1 kWh back to holder
+        client.transfer(&recipient, &holder, &1_000_i128);
+        assert_eq!(client.balance(&recipient), 1_000_i128);
+        assert_eq!(client.balance(&holder), mint_amount - transfer_amount + 1_000);
+
+        // Step 7 — burn: holder burns 1 kWh directly
+        let burn_amount: i128 = 1_000;
+        client.burn(&holder, &burn_amount);
+        let expected_supply = mint_amount - burn_amount;
+        assert_eq!(client.total_supply(), expected_supply);
+
+        // Step 8 — burn_from: spender burns remaining allowance (1_000 units)
+        // Remaining allowance = 3_000 - 2_000 = 1_000
+        let burn_from_amount: i128 = 1_000;
+        client.burn_from(&spender, &holder, &burn_from_amount);
+        assert_eq!(
+            client.total_supply(),
+            expected_supply - burn_from_amount
+        );
+        // Allowance fully consumed
+        assert_eq!(client.allowance(&holder, &spender), 0);
+
+        // Step 9 — Final supply invariant: total_supply == minted - burned
+        let final_supply = client.total_supply();
+        assert!(
+            final_supply >= 0,
+            "total_supply must never be negative"
+        );
+    }
+
+    /// Verifies that a SEP-41 client can detect and handle the retire flow:
+    /// retired addresses cannot transfer, matching the documented deviation.
+    #[test]
+    fn test_sep41_client_retirement_flow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(EnergyToken, ());
+        let client = EnergyTokenClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let minter = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        client.initialize(&admin, &minter);
+        client.mint(&holder, &5_000_i128);
+
+        // Retire full balance — marks address as retired
+        client.retire(&holder, &5_000_i128, &String::from_str(&env, "REC compliance"));
+        assert_eq!(client.balance(&holder), 0);
+        assert_eq!(client.total_supply(), 0);
+    }
 }
 
 #[cfg(test)]

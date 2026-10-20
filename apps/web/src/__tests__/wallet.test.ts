@@ -2,6 +2,8 @@
  * Tests for useWallet hook using the mock Freighter wallet.
  * Runs headlessly in CI — no browser extension required.
  */
+// @vitest-environment jsdom
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { installMockFreighter, uninstallMockFreighter } from '@/tests/mock-freighter'

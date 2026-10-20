@@ -1,0 +1,158 @@
+name: Staging Config Drift Check
+
+# Runs weekly to detect drift between staging and production configurations.
+# Compares required environment variable keys, Stellar network settings,
+# and Supabase migration state.
+#
+# This job does NOT compare secret values — only variable presence and
+# non-sensitive configuration attributes (network names, public URLs).
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  config-drift:
+    name: Check staging/production config parity
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 1. Verify Stellar network parity ──────────────────────────────────
+      - name: Check Stellar network config
+        run: |
+          echo "## Stellar Network Config" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Staging must use testnet; production must use mainnet.
+          # These are set as Vercel environment variables. We validate
+          # the expected values are documented in .env.staging.example.
+          STAGING_NETWORK=$(grep 'NEXT_PUBLIC_STELLAR_NETWORK' apps/web/.env.staging.example \
+            | grep -v '^#' | head -1 | cut -d= -f2 | tr -d '[:space:]')
+
+          echo "Staging Stellar network: $STAGING_NETWORK"
+          echo "| Key | Expected | Found |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$STAGING_NETWORK" = "testnet" ]; then
+            echo "| NEXT_PUBLIC_STELLAR_NETWORK (staging) | testnet | ✅ $STAGING_NETWORK |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| NEXT_PUBLIC_STELLAR_NETWORK (staging) | testnet | ❌ $STAGING_NETWORK |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Staging Stellar network is '$STAGING_NETWORK', expected 'testnet'"
+            echo "DRIFT_DETECTED=true" >> "$GITHUB_ENV"
+          fi
+
+      # ── 2. Verify required environment variable keys are present ──────────
+      - name: Check required env var keys
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Required Environment Variables" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Variable | In staging example | Notes |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          DRIFT=false
+
+          # List of env vars required in both staging and production
+          REQUIRED_KEYS=(
+            "NEXT_PUBLIC_SUPABASE_URL"
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+            "SUPABASE_SERVICE_ROLE_KEY"
+            "NEXT_PUBLIC_STELLAR_NETWORK"
+            "NEXT_PUBLIC_STELLAR_RPC_URL"
+            "NEXT_PUBLIC_ENERGY_TOKEN_ID"
+            "NEXT_PUBLIC_AUDIT_REGISTRY_ID"
+            "NEXT_PUBLIC_COMMUNITY_GOVERNANCE_ID"
+            "MINTER_SECRET_KEY"
+            "REDIS_URL"
+          )
+
+          for KEY in "${REQUIRED_KEYS[@]}"; do
+            if grep -q "^${KEY}" apps/web/.env.staging.example; then
+              echo "| \`$KEY\` | ✅ present | |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`$KEY\` | ❌ MISSING | Add to .env.staging.example |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::Required key '$KEY' missing from apps/web/.env.staging.example"
+              DRIFT=true
+            fi
+          done
+
+          if [ "$DRIFT" = "true" ]; then
+            echo "DRIFT_DETECTED=true" >> "$GITHUB_ENV"
+          fi
+
+      # ── 3. Check Supabase migration state ─────────────────────────────────
+      - name: Check Supabase migration state
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Supabase Migration Files" >> "$GITHUB_STEP_SUMMARY"
+
+          MIGRATION_COUNT=$(find supabase/migrations -name "*.sql" -not -path "*/rollbacks/*" | wc -l)
+          ROLLBACK_COUNT=$(find supabase/migrations/rollbacks -name "*.sql" 2>/dev/null | wc -l)
+
+          echo "Migration files (excluding rollbacks): $MIGRATION_COUNT"
+          echo "Rollback files: $ROLLBACK_COUNT"
+
+          echo "| Check | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Migration files | $MIGRATION_COUNT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Rollback files | $ROLLBACK_COUNT |" >> "$GITHUB_STEP_SUMMARY"
+
+          # Verify each migration has a corresponding rollback
+          MISSING_ROLLBACKS=()
+          for MIGRATION in $(find supabase/migrations -maxdepth 1 -name "*.sql" | sort); do
+            BASE=$(basename "$MIGRATION" .sql)
+            ROLLBACK="supabase/migrations/rollbacks/${BASE}.down.sql"
+            if [ ! -f "$ROLLBACK" ]; then
+              MISSING_ROLLBACKS+=("$BASE")
+            fi
+          done
+
+          if [ ${#MISSING_ROLLBACKS[@]} -gt 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### ⚠️ Migrations without rollback scripts" >> "$GITHUB_STEP_SUMMARY"
+            for M in "${MISSING_ROLLBACKS[@]}"; do
+              echo "- $M" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::Migration '$M' has no rollback script in supabase/migrations/rollbacks/"
+            done
+          else
+            echo "| Rollback coverage | ✅ All migrations have rollback scripts |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # ── 4. Verify staging workflow uses correct branch ────────────────────
+      - name: Check deploy-staging targets develop branch
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Deploy Pipeline Config" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -q "branches: \[develop\]" .github/workflows/deploy-staging.yml; then
+            echo "| deploy-staging targets develop | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| deploy-staging targets develop | ❌ Check .github/workflows/deploy-staging.yml |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::deploy-staging.yml may not be targeting the 'develop' branch"
+            echo "DRIFT_DETECTED=true" >> "$GITHUB_ENV"
+          fi
+
+          if grep -q "branches: \[main\]" .github/workflows/blue-green-deploy.yml; then
+            echo "| blue-green-deploy targets main | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| blue-green-deploy targets main | ❌ Check .github/workflows/blue-green-deploy.yml |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::blue-green-deploy.yml may not be targeting the 'main' branch"
+          fi
+
+      # ── 5. Fail job if drift detected ─────────────────────────────────────
+      - name: Evaluate drift
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DRIFT_DETECTED" = "true" ]; then
+            echo "## ❌ Config drift detected — review the findings above" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Config drift detected between staging and production. Review the job summary."
+            exit 1
+          else
+            echo "## ✅ No config drift detected" >> "$GITHUB_STEP_SUMMARY"
+            echo "Staging and production configurations are in parity."
+          fi

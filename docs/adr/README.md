@@ -10,3 +10,7 @@ Use [template.md](template.md) when creating a new ADR.
 | [002](002-stellar-soroban.md) | Stellar/Soroban over EVM | Accepted |
 | [003](003-sep41-token-standard.md) | SEP-41 Token Standard for Energy Certificates | Accepted |
 | [004](004-cooperative-governance.md) | Cooperative Governance Model | Accepted |
+| [005](005-monorepo-structure.md) | Monorepo Structure with Turborepo + pnpm | Accepted |
+| [006](006-certificate-retirement-model.md) | Certificate Retirement Model | Accepted |
+| [007](007-supabase-service-role-usage.md) | Supabase Service Role Key Usage | Accepted |
+| [009](009-redis-caching.md) | Redis Caching Strategy | Accepted |

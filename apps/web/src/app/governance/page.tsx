@@ -408,7 +408,7 @@ function Field({
       <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
         {required && (
-          <span className="ml-1 text-red-500" aria-hidden="true">*</span>
+          <span className="ms-1 text-red-500" aria-hidden="true">*</span>
         )}
       </label>
       <div className={`w-full [&>input]:w-full [&>textarea]:w-full [&>input]:rounded-lg [&>textarea]:rounded-lg [&>input]:border [&>textarea]:border [&>input]:px-3 [&>textarea]:px-3 [&>input]:py-1.5 [&>textarea]:py-1.5 [&>input]:text-sm [&>textarea]:text-sm [&>input]:outline-none [&>textarea]:outline-none [&>input]:bg-white [&>textarea]:bg-white dark:[&>input]:bg-gray-800 dark:[&>textarea]:bg-gray-800 [&>input]:text-gray-900 [&>textarea]:text-gray-900 dark:[&>input]:text-gray-100 dark:[&>textarea]:text-gray-100 [&>input]:transition-colors [&>textarea]:transition-colors [&>input:focus]:ring-2 [&>textarea:focus]:ring-2 [&>input:focus]:ring-yellow-400 [&>textarea:focus]:ring-yellow-400 ${error ? '[&>input]:border-red-400 [&>textarea]:border-red-400 dark:[&>input]:border-red-500 dark:[&>textarea]:border-red-500' : '[&>input]:border-gray-300 [&>textarea]:border-gray-300 dark:[&>input]:border-gray-700 dark:[&>textarea]:border-gray-700'}`}>

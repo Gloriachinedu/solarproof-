@@ -26,14 +26,47 @@ jobs:
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           [ "$STATUS" = "200" ] || echo "::warning::verify page check failed (HTTP $STATUS)"
 
+      - name: Check /api/readings
+        id: readings
+        run: |
+          # POST with empty body — expects 400/401/422 (not 5xx), confirming the endpoint is alive.
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+            -X POST "${{ vars.APP_URL }}/api/readings" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          # Any non-5xx response confirms the endpoint is up
+          case "$STATUS" in
+            200|400|401|422) echo "readings endpoint is up (HTTP $STATUS)" ;;
+            *) echo "::warning::readings endpoint check failed (HTTP $STATUS)" ;;
+          esac
+
+      - name: Evaluate SLA (99.5% threshold)
+        id: sla
+        run: |
+          HEALTH="${{ steps.health.outputs.status }}"
+          VERIFY="${{ steps.verify.outputs.status }}"
+          READINGS="${{ steps.readings.outputs.status }}"
+          FAILED=0
+
+          [ "$HEALTH" != "200" ] && FAILED=$((FAILED+1))
+          [ "$VERIFY" != "200" ] && FAILED=$((FAILED+1))
+          # readings is up if it returns any non-5xx
+          case "$READINGS" in 200|400|401|422) ;; *) FAILED=$((FAILED+1)) ;; esac
+
+          echo "failed_checks=$FAILED" >> "$GITHUB_OUTPUT"
+          # Record result for SLA tracking (0 = all up, >0 = incident)
+          echo "incident=$([ $FAILED -gt 0 ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+
       - name: Alert on outage
-        if: steps.health.outputs.status != '200' || steps.verify.outputs.status != '200'
+        if: steps.sla.outputs.incident == 'true'
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_UPTIME_WEBHOOK }}
         run: |
           HEALTH="${{ steps.health.outputs.status }}"
           VERIFY="${{ steps.verify.outputs.status }}"
-          MSG="🚨 *SolarProof outage detected*\n• \`/api/health\` → HTTP $HEALTH\n• \`/verify\` → HTTP $VERIFY\n• Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          READINGS="${{ steps.readings.outputs.status }}"
+          MSG="🚨 *SolarProof outage detected* (SLA: 99.5%)\n• \`/api/health\` → HTTP $HEALTH\n• \`/verify\` → HTTP $VERIFY\n• \`/api/readings\` → HTTP $READINGS\n• Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)\n• Runbook: https://github.com/katecatherinaa/solarproof/blob/main/docs/runbooks/incident-response.md"
           curl -s -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d "{\"text\":\"$MSG\"}"

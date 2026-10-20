@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders } from '@/lib/cors'
 
-export const SUPPORTED_LOCALES = ['en', 'es', 'fr', 'de', 'pt'] as const
+export const SUPPORTED_LOCALES = ['en', 'es', 'fr', 'de', 'pt', 'ar'] as const
 export type Locale = typeof SUPPORTED_LOCALES[number]
 
 /**

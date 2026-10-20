@@ -126,6 +126,12 @@ GET /api/verify?id=a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 ---
 
+### GET /api/ws/readings
+
+**Not implemented.** This route currently responds with `501 Not Implemented` JSON; it does not accept WebSocket upgrades or publish events. Real-time certificate alerts require a WebSocket-capable event service or an authorized Supabase Realtime subscription before the frontend can receive issuance, failure, and retirement notifications. The event source and payload contract must be defined before a client integration can be implemented. See [issue #11](https://github.com/katecatherinaa/solarproof/issues/11).
+
+---
+
 ### GET /api/health
 
 Liveness check used by uptime monitoring.

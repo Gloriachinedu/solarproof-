@@ -92,7 +92,7 @@ export function ToastContainer() {
       aria-live="polite"
       aria-atomic="true"
       aria-label="Notifications"
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+      className="fixed end-4 bottom-4 z-50 flex flex-col gap-2"
     >
       {toasts.map((t) => {
         const Icon = icons[t.variant]
@@ -109,7 +109,7 @@ export function ToastContainer() {
             <button
               onClick={() => dismiss(t.id)}
               aria-label="Dismiss notification"
-              className="ml-1 shrink-0 opacity-60 hover:opacity-100"
+              className="ms-1 shrink-0 opacity-60 hover:opacity-100"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

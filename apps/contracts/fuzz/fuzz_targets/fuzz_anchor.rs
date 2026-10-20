@@ -15,13 +15,15 @@ use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
 use audit_registry::{AuditRegistry, AuditRegistryClient, Error};
 
 fuzz_target!(|data: &[u8]| {
-    // Need at least 64 bytes: 32 for hash, 32 for nonce
-    if data.len() < 64 {
-        return;
+    let mut hash_bytes = [0_u8; 32];
+    let mut nonce_bytes = [0_u8; 32];
+    for (index, byte) in data.iter().enumerate() {
+        if index % 2 == 0 {
+            hash_bytes[(index / 2) % 32] ^= *byte;
+        } else {
+            nonce_bytes[(index / 2) % 32] ^= *byte;
+        }
     }
-
-    let hash_bytes: [u8; 32] = data[..32].try_into().unwrap();
-    let nonce_bytes: [u8; 32] = data[32..64].try_into().unwrap();
 
     let env = Env::default();
     env.mock_all_auths();

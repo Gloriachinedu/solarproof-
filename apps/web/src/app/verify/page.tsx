@@ -273,7 +273,7 @@ export default function VerifyPage() {
                   <div className={`pb-6 ${isLast ? 'pb-0' : ''}`}>
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                       {step.label}
-                      <span className={`ml-2 text-xs font-normal ${
+                      <span className={`ms-2 text-xs font-normal ${
                         step.status === 'pass' ? 'text-green-600 dark:text-green-400' :
                         step.status === 'fail' ? 'text-red-600 dark:text-red-400' :
                         'text-gray-400 dark:text-gray-500'
@@ -293,7 +293,7 @@ export default function VerifyPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             aria-label={`View ${step.label} on Stellar Explorer (opens in new tab)`}
-                            className="ml-2 inline-flex items-center gap-0.5 text-blue-600 hover:underline dark:text-blue-400"
+                            className="ms-2 inline-flex items-center gap-0.5 text-blue-600 hover:underline dark:text-blue-400"
                           >
                             Explorer <ExternalLink className="h-3 w-3" aria-hidden="true" />
                           </a>

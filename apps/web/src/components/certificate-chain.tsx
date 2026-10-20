@@ -39,7 +39,7 @@ export function CertificateChain({ steps }: CertificateChainProps) {
             {!isLast && (
               <span
                 aria-hidden="true"
-                className="absolute left-[19px] top-10 h-full w-px bg-gray-200 dark:bg-gray-700"
+                className="absolute start-[19px] top-10 h-full w-px bg-gray-200 dark:bg-gray-700"
               />
             )}
 
@@ -108,7 +108,7 @@ export function CertificateChain({ steps }: CertificateChainProps) {
                           {step.hash.slice(0, 16)}…
                           <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
                         </a>
-                        <CopyableText value={step.hash} displayValue="" className="ml-0" />
+                        <CopyableText value={step.hash} displayValue="" className="ms-0" />
                       </span>
                     ) : (
                       <CopyableText value={step.hash} displayValue={`${step.hash.slice(0, 16)}…`} />

@@ -75,7 +75,7 @@ function Field({ id, label, error, hint, required, children }: FieldProps) {
       >
         {label}
         {required && (
-          <span className="ml-1 text-red-500" aria-hidden="true">
+          <span className="ms-1 text-red-500" aria-hidden="true">
             *
           </span>
         )}

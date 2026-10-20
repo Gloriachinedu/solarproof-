@@ -38,3 +38,7 @@ Nonces used for transaction idempotency were previously stored in persistent sto
 
 ## Documentation
 The contract code in `apps/contracts/audit_registry/src/lib.rs` has been updated with these changes, and all tests have been verified (fixed and extended with bucket collision tests).
+
+## Storage Key Namespace Strategy
+
+All contracts use typed `#[contracttype]` enum keys. Cross-contract key collisions are prevented by Soroban's contract-scoped storage model (each contract's storage is prefixed with its contract ID). See `docs/adr/008-storage-key-namespace-strategy.md` for the full audit and key inventory across all three contracts.

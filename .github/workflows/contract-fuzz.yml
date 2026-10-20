@@ -1,0 +1,38 @@
+name: Contract Fuzzing
+
+on:
+  pull_request:
+    paths:
+      - "apps/contracts/**"
+      - ".github/workflows/contract-fuzz.yml"
+  push:
+    branches: [main, develop]
+    paths:
+      - "apps/contracts/**"
+      - ".github/workflows/contract-fuzz.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: contract-fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Soroban contract fuzz targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz audit_registry.anchor
+        working-directory: apps/contracts/fuzz
+        run: cargo fuzz run fuzz_anchor -- -max_total_time=30 -max_len=128
+
+      - name: Fuzz community_governance.vote
+        working-directory: apps/contracts/fuzz
+        run: cargo fuzz run fuzz_vote -- -max_total_time=30 -max_len=128

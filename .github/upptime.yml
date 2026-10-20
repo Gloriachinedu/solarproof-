@@ -4,13 +4,34 @@ repo: solarproof-status   # separate repo for status page (create at github.com/
 sites:
   - name: API Health
     url: $APP_URL/api/health
+    expectedStatusCodes:
+      - 200
+    maxResponseTime: 5000
   - name: Public Verifier
     url: $APP_URL/verify
+    expectedStatusCodes:
+      - 200
+    maxResponseTime: 5000
+  - name: API Readings
+    url: $APP_URL/api/readings
+    method: POST
+    headers:
+      Content-Type: application/json
+    body: '{}'
+    expectedStatusCodes:
+      - 200
+      - 400
+      - 401
+      - 422
+    maxResponseTime: 5000
 
 status-website:
   cname: status.solarproof.app   # optional custom domain
   name: SolarProof Status
   logoUrl: https://solarproof.vercel.app/favicon.ico
+  # Incident runbook: https://github.com/katecatherinaa/solarproof/blob/main/docs/runbooks/incident-response.md
 
+# SLA target: 99.5% uptime. Alerts fire on any breach of this threshold.
+# Check interval: 1 minute (driven by the workflow schedule in .github/workflows/upptime.yml)
 # Upptime retains 30 days of history in the repo via git commits.
 # See https://upptime.js.org for setup instructions.

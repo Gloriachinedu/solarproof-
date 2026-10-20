@@ -6,15 +6,68 @@ name: Apply Branch Protection
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - .github/workflows/branch-protection.yml
+  pull_request:
+    branches: [main, develop]
   workflow_dispatch:
 
 jobs:
+  # -----------------------------------------------------------------------
+  # Job 1: Verify no direct push to protected branches (runs on every push)
+  # -----------------------------------------------------------------------
+  verify-no-direct-push:
+    name: Verify no direct push to protected branch
+    runs-on: ubuntu-latest
+    # Only run this check on direct pushes (not PRs, not workflow_dispatch)
+    if: github.event_name == 'push'
+    steps:
+      - name: Fail if direct push to main or develop
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          echo "Push detected to branch: $BRANCH"
+
+          # A legitimate push to main/develop must come from a merge commit
+          # (GitHub sets the event to "push" for both direct pushes and PR merges).
+          # We check that the commit has more than one parent (merge commit).
+          COMMIT_SHA="${{ github.sha }}"
+          PARENTS=$(git -c protocol.version=2 ls-remote --exit-code \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" \
+            "refs/heads/$BRANCH" 2>/dev/null | awk '{print $1}') || true
+
+          # Use GitHub API to check parent count
+          PARENT_COUNT=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${COMMIT_SHA}" \
+            | jq '.parents | length')
+
+          echo "Commit $COMMIT_SHA has $PARENT_COUNT parent(s)."
+
+          if [[ "$PARENT_COUNT" -lt 2 ]]; then
+            echo "::error::Direct push to '$BRANCH' is not allowed. Use a pull request."
+            echo "::error::Commit $COMMIT_SHA has only $PARENT_COUNT parent — not a merge commit."
+            exit 1
+          fi
+
+          echo "✅ Push is a merge commit — branch protection policy satisfied."
+
+      - name: Verify minimum reviewers policy
+        run: |
+          echo "ℹ️  PR review requirement (min 1 reviewer) is enforced via branch protection rules."
+          echo "ℹ️  Run the 'protect' job (workflow_dispatch or push to main) to (re)apply rules."
+
+  # -----------------------------------------------------------------------
+  # Job 2: Apply branch protection rules via GitHub API (admin only)
+  # -----------------------------------------------------------------------
   protect:
     name: Apply branch protection rules
     runs-on: ubuntu-latest
+    # Only apply rules when explicitly triggered or when the workflow file itself changes on main
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref_name == 'main')
     steps:
       - name: Protect main
         env:
@@ -77,3 +130,12 @@ jobs:
             "required_conversation_resolution": true
           }
           EOF
+
+      - name: Summarise applied rules
+        run: |
+          echo "### ✅ Branch protection rules applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | Required approvals | Force push | Admin bypass |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------------------|------------|--------------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`main\`    | 1 | ❌ | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`develop\` | 1 | ❌ | ✅ |" >> "$GITHUB_STEP_SUMMARY"

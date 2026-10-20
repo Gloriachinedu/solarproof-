@@ -1,5 +1,66 @@
-# OWASP ZAP Baseline Scan Rules
-# Format: <rule_id>\t<WARN|IGNORE|INFO|FAIL>
-# Document false positives below:
-# Example: Ignore Content Security Policy (CSP) Header Not Set because we handle it at the Edge level
-# 10038	IGNORE
+# OWASP ZAP Baseline Rules — SolarProof
+# Format: <rule_id>\tWARN|IGNORE|INFO|FAIL
+#
+# Rules marked IGNORE are documented false positives.
+# Rules marked FAIL will cause the CI job to fail.
+# Rules not listed here use the ZAP default (WARN).
+#
+# References:
+#   https://www.zaproxy.org/docs/alerts/
+#   https://github.com/zaproxy/zap-extensions/tree/main/addOns/pscanrules
+#
+# --- False Positives (IGNORE) ---
+#
+# 10038 Content Security Policy (CSP) Header Not Set
+#   False positive: CSP is enforced at the Vercel Edge layer via next.config.ts
+#   (see apps/web/next.config.ts, securityHeaders). ZAP scans the origin and
+#   does not see the edge-injected headers.
+10038	IGNORE
+#
+# 10063 Permissions Policy Header Not Set
+#   False positive: Permissions-Policy is also injected at the Edge layer.
+10063	IGNORE
+#
+# 10035 Strict-Transport-Security Header Not Set
+#   False positive: HSTS is enforced by Vercel globally for all deployments.
+10035	IGNORE
+#
+# 10054 Cookie Without SameSite Attribute
+#   False positive: Supabase auth cookies are set with SameSite=Lax server-side;
+#   ZAP does not authenticate and sees only anonymous session cookies.
+10054	IGNORE
+#
+# --- Fail on Critical/High Findings ---
+#
+# 40012 Cross Site Scripting (Reflected)
+40012	FAIL
+#
+# 40014 Cross Site Scripting (Persistent)
+40014	FAIL
+#
+# 90019 Server Side Code Injection
+90019	FAIL
+#
+# 90020 Remote OS Command Injection
+90020	FAIL
+#
+# 40018 SQL Injection
+40018	FAIL
+#
+# 40019 SQL Injection - MySQL
+40019	FAIL
+#
+# 40020 SQL Injection - Hypersonic SQL
+40020	FAIL
+#
+# 40021 SQL Injection - Oracle
+40021	FAIL
+#
+# 40022 SQL Injection - PostgreSQL
+40022	FAIL
+#
+# 90021 XPath Injection
+90021	FAIL
+#
+# 40003 CRLF Injection
+40003	FAIL

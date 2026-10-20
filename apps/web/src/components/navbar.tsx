@@ -176,7 +176,7 @@ export function Navbar({ locale }: NavbarProps) {
                   onClick={disconnect}
                   aria-label={t('disconnectWallet')}
                   title="Disconnect"
-                  className="ml-0.5 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
+                  className="ms-0.5 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
                 >
                   <LogOut className="h-3 w-3" aria-hidden="true" />
                 </button>

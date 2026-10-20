@@ -2,6 +2,7 @@
  * Snapshot tests for key UI components
  * Issue #328 — catch unintended visual regressions
  */
+// @vitest-environment jsdom
 
 import { describe, it, expect, vi } from 'vitest'
 import { render } from '@testing-library/react'

@@ -1,32 +1,45 @@
-name: OWASP ZAP Integration Scan
+name: OWASP ZAP Full Active Scan
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Weekly on Sunday at midnight
+    - cron: '0 0 * * 0' # Weekly on Sunday at midnight UTC
   workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL to scan (defaults to staging)'
+        required: false
+        default: 'https://staging.solarproof.example.com'
 
 jobs:
-  zap_scan:
+  zap_full_scan:
     runs-on: ubuntu-latest
-    name: Scan the web application
+    name: OWASP ZAP Full Active Scan
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.15.0
-        with:
-          target: 'https://staging.solarproof.example.com' # Replace with actual staging URL
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a'
-          issue_title: 'ZAP Scan Report: High/Critical Findings'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fail_action: false
 
-      - name: Archive ZAP Report
+      - name: ZAP Full Active Scan
+        uses: zaproxy/action-full-scan@v0.11.0
+        with:
+          target: ${{ github.event.inputs.target_url || 'https://staging.solarproof.example.com' }}
+          rules_file_name: '.zap/rules.tsv'
+          # -j = report only FAIL-level findings; -l FAIL = exit code 2 on any FAIL-level alert
+          cmd_options: '-j -l FAIL'
+          issue_title: 'ZAP Full Scan: Critical/High Findings'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Fail the job if Critical or High findings are found (as configured in .zap/rules.tsv)
+          fail_action: true
+          artifact_name: 'zap-full-scan-report'
+          allow_issue_writing: true
+
+      - name: Upload ZAP HTML Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zap-scan-report
+          name: zap-full-scan-report-${{ github.run_id }}
           path: |
-            report_md.md
             report_html.html
+            report_md.md
+            report_json.json
+          if-no-files-found: warn
+          retention-days: 30

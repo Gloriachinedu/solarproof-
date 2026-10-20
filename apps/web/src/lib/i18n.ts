@@ -79,6 +79,7 @@ const messages = {
     'error.not_found': 'Não encontrado',
     'error.invalid_signature': 'Assinatura inválida',
   },
+  ar: {},
 } satisfies Record<Locale, Record<string, string>>
 
 export type MessageKey = keyof typeof messages['en']
@@ -89,6 +90,6 @@ export type MessageKey = keyof typeof messages['en']
  */
 export function getTranslations(locale: Locale) {
   return function t(key: MessageKey): string {
-    return messages[locale]?.[key] ?? messages['en'][key] ?? key
+    return (messages[locale] as Record<string, string> | undefined)?.[key] ?? messages['en'][key] ?? key
   }
 }

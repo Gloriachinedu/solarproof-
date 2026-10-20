@@ -19,9 +19,17 @@ on:
         options:
           - baseline
           - breakpoint
-  # Run baseline weekly against staging to catch regressions
   schedule:
-    - cron: '0 4 * * 1'  # Every Monday at 04:00 UTC
+    # Nightly run against staging for automated P95 regression detection
+    - cron: '0 2 * * *'   # Every day at 02:00 UTC
+    # Weekly broader run on Monday morning (kept for breakpoint analysis)
+    - cron: '0 4 * * 1'   # Every Monday at 04:00 UTC
+
+env:
+  # P95 baseline from docs/PERFORMANCE_BASELINE.md (milliseconds)
+  P95_BASELINE_MS: 2000
+  # Regression threshold: fail if P95 exceeds baseline by more than 20%
+  P95_REGRESSION_PERCENT: 20
 
 jobs:
   load-test:
@@ -42,17 +50,95 @@ jobs:
           sudo apt-get update && sudo apt-get install -y k6
 
       - name: Run load test
+        id: run_test
         run: |
+          # Output JSON summary to file for regression analysis
           k6 run tests/load/readings.js \
             -e API_URL=${{ github.event.inputs.api_url || 'https://solarproof-staging.vercel.app' }} \
             -e METER_ID=${{ github.event.inputs.meter_id || '00000000-0000-0000-0000-000000000001' }} \
-            -e SCENARIO=${{ github.event.inputs.scenario || 'baseline' }}
+            -e SCENARIO=${{ github.event.inputs.scenario || 'baseline' }} \
+            --summary-export=k6-summary.json || true
+
+      - name: P95 Regression Check
+        id: regression_check
+        run: |
+          # Parse P95 from k6 JSON summary
+          P95=$(python3 -c "
+          import json, sys
+          try:
+              with open('k6-summary.json') as f:
+                  data = json.load(f)
+              metrics = data.get('metrics', {})
+              # Try custom metric first, fall back to built-in
+              p95 = (
+                  metrics.get('reading_duration_ms', {}).get('p(95)')
+                  or metrics.get('http_req_duration', {}).get('p(95)')
+              )
+              if p95 is None:
+                  print('N/A')
+                  sys.exit(0)
+              print(f'{p95:.0f}')
+          except Exception as e:
+              print(f'ERROR: {e}', file=sys.stderr)
+              print('N/A')
+          " 2>&1)
+
+          echo "p95_ms=${P95}" >> "$GITHUB_OUTPUT"
+
+          if [ "$P95" = "N/A" ] || [ "$P95" = "" ]; then
+            echo "::warning::Could not parse P95 from k6 summary — skipping regression check"
+            echo "regression=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASELINE=${{ env.P95_BASELINE_MS }}
+          THRESHOLD_PCT=${{ env.P95_REGRESSION_PERCENT }}
+          # Calculate maximum allowed P95 = baseline * (1 + threshold/100)
+          MAX_P95=$(python3 -c "print(int($BASELINE * (1 + $THRESHOLD_PCT / 100)))")
+
+          echo "P95 measured   : ${P95} ms"
+          echo "P95 baseline   : ${BASELINE} ms"
+          echo "P95 max allowed: ${MAX_P95} ms (baseline + ${THRESHOLD_PCT}%)"
+          echo "max_p95_ms=${MAX_P95}" >> "$GITHUB_OUTPUT"
+
+          if [ "$P95" -gt "$MAX_P95" ]; then
+            echo "::error::P95 regression detected! ${P95}ms > ${MAX_P95}ms (${BASELINE}ms baseline + ${THRESHOLD_PCT}%)"
+            echo "regression=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          else
+            echo "✅ P95 within acceptable range: ${P95}ms ≤ ${MAX_P95}ms"
+            echo "regression=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add Job Summary
+        if: always()
+        run: |
+          P95="${{ steps.regression_check.outputs.p95_ms }}"
+          MAX_P95="${{ steps.regression_check.outputs.max_p95_ms }}"
+          REGRESSION="${{ steps.regression_check.outputs.regression }}"
+
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## k6 Load Test Results
+
+          | Metric | Value |
+          |---|---|
+          | Scenario | ${{ github.event.inputs.scenario || 'baseline' }} |
+          | P95 Latency | ${P95:-N/A} ms |
+          | Baseline (from PERFORMANCE_BASELINE.md) | ${{ env.P95_BASELINE_MS }} ms |
+          | Max Allowed (baseline + ${{ env.P95_REGRESSION_PERCENT }}%) | ${MAX_P95:-N/A} ms |
+          | Regression Detected | ${REGRESSION:-unknown} |
+
+          > Baseline documented in [docs/PERFORMANCE_BASELINE.md](../../docs/PERFORMANCE_BASELINE.md).
+          > To update the baseline after an intentional performance change, submit a PR updating \`P95_BASELINE_MS\` in this workflow and the table in \`docs/PERFORMANCE_BASELINE.md\`.
+          EOF
 
       - name: Upload k6 results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k6-results-${{ github.event.inputs.scenario || 'baseline' }}-${{ github.run_id }}
-          path: '*.json'
+          path: |
+            k6-summary.json
+            '*.json'
           if-no-files-found: ignore
           retention-days: 30

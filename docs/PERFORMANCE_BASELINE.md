@@ -90,9 +90,25 @@ _Update this table after each significant infrastructure change or release._
 
 ## CI integration
 
-The load test is not run on every PR (it requires a live environment).
-Trigger it manually via the GitHub Actions workflow:
+The load test runs nightly at 02:00 UTC against staging via `.github/workflows/load-test.yml`.
 
+The CI job:
+1. Runs `tests/load/readings.js` (100 VUs, 60 s baseline scenario)
+2. Parses P95 from the k6 JSON summary
+3. Fails if P95 > **2 400 ms** (baseline + 20% regression tolerance)
+4. Uploads results as a CI artifact (30-day retention)
+5. Posts a summary table to the GitHub Actions job summary
+
+To trigger manually:
 ```
 Actions → Load Test — POST /api/readings → Run workflow
 ```
+
+### Updating the baseline
+
+When an intentional infrastructure change (e.g., a new caching layer, DB index, or RPC endpoint) improves or changes performance, update the baseline via PR:
+
+1. Run the load test against staging and note the new P95.
+2. Update `P95_BASELINE_MS` in `.github/workflows/load-test.yml`.
+3. Update the **Baseline results** table below with the new measurements.
+4. Open a PR with both changes and reference the workflow run that produced the results.

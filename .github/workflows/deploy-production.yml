@@ -21,6 +21,9 @@ jobs:
       url: ${{ steps.promote.outputs.url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so Sentry can resolve commits in the release
+          fetch-depth: 0
 
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
@@ -45,5 +48,65 @@ jobs:
             --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
           echo "url=${{ steps.deploy.outputs.url }}" >> "$GITHUB_OUTPUT"
 
+      # ------------------------------------------------------------------
+      # Sentry release tracking
+      # Requires secrets: SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT
+      # ------------------------------------------------------------------
+      - name: Install Sentry CLI
+        run: npm install -g @sentry/cli@2
+
+      - name: Create Sentry release
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          RELEASE_VERSION="${{ github.sha }}"
+          echo "Creating Sentry release: $RELEASE_VERSION"
+          sentry-cli releases new "$RELEASE_VERSION"
+          sentry-cli releases set-commits "$RELEASE_VERSION" --auto
+
+      - name: Upload source maps to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          RELEASE_VERSION="${{ github.sha }}"
+          # Vercel builds output source maps under .next/
+          # We need to build locally to get them, or fetch from the Vercel build output.
+          # Re-build with source maps enabled to capture them.
+          cd apps/web
+          # Install dependencies (pnpm is available in ubuntu-latest via corepack)
+          corepack enable
+          pnpm install --frozen-lockfile
+          NEXT_PUBLIC_SENTRY_DSN="${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}" \
+            SENTRY_AUTH_TOKEN="${{ secrets.SENTRY_AUTH_TOKEN }}" \
+            NODE_ENV=production \
+            pnpm build 2>&1 | tail -5
+
+          # Upload .next/static source maps
+          sentry-cli releases files "$RELEASE_VERSION" \
+            upload-sourcemaps .next/static \
+            --rewrite \
+            --url-prefix "~/_next/static"
+
+      - name: Finalize Sentry release and deploy
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          RELEASE_VERSION="${{ github.sha }}"
+          sentry-cli releases finalize "$RELEASE_VERSION"
+          sentry-cli releases deploys "$RELEASE_VERSION" new \
+            --env production \
+            --url "${{ steps.promote.outputs.url }}"
+          echo "✅ Sentry release $RELEASE_VERSION deployed to production"
+
       - name: Write deployment URL to job summary
-        run: echo "### 🚀 Production deployed to ${{ steps.promote.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "### 🚀 Production deployed to ${{ steps.promote.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Sentry release:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Sentry project:** ${{ secrets.SENTRY_PROJECT }}" >> "$GITHUB_STEP_SUMMARY"

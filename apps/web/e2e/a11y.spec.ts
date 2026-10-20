@@ -9,6 +9,16 @@ import { test, expect } from '@playwright/test'
 import { checkA11y } from './helpers/a11y'
 
 test.describe('Accessibility (axe-core)', () => {
+  test('skip link moves keyboard users to main content', async ({ page }) => {
+    await page.goto('/')
+
+    const skipLink = page.getByRole('link', { name: 'Skip to main content' })
+    await page.keyboard.press('Tab')
+    await expect(skipLink).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('#main-content')).toBeFocused()
+  })
+
   test('verify page has no critical/serious violations', async ({ page }) => {
     await page.goto('/verify')
     await checkA11y(page)

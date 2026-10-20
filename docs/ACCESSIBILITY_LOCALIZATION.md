@@ -123,9 +123,11 @@ export function VerifyPage() {
 
 For right-to-left languages (Arabic, Hebrew):
 
-- Set `dir="rtl"` on the `<html>` element when an RTL locale is active.
-- Use logical CSS properties (`margin-inline-start` not `margin-left`).
-- Test layout with a browser dev-tools direction toggle before submitting.
+- Add the locale to `apps/web/src/lib/locales.ts` and define its direction in `LOCALE_DIRECTIONS`; the root layout applies that value to `<html dir>`.
+- Use logical CSS properties and Tailwind utilities (`margin-inline-start` / `ms-*`, `padding-inline-start` / `ps-*`, `start-*`, and `end-*`) instead of physical left/right properties where the component allows it.
+- Add a Playwright smoke test that selects the locale and checks the rendered document direction.
+- The `ar` locale is an RTL preview and intentionally reuses English messages. Replace that fallback with reviewed Arabic translations before presenting it as a translated locale.
+- Check mixed-direction content such as hashes, numbers, and external identifiers separately; use `<bdi>` when a value's direction should remain isolated from surrounding text.
 
 ---
 

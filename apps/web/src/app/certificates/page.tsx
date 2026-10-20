@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Award, Leaf, Search, X, FileDown } from 'lucide-react'
+import { Award, Leaf, Search, X, FileDown, AlertTriangle } from 'lucide-react'
 import { RetireModal } from '@/components/retire-modal'
 import { TransferModal } from '@/components/transfer-modal'
 import { useToast } from '@/components/toast'
@@ -36,6 +36,93 @@ async function fetchCertificates(params: URLSearchParams): Promise<CertificatesR
   return res.json()
 }
 
+// ── Bulk Retire Confirmation Modal ─────────────────────────────────────────────
+
+function BulkRetireConfirmModal({
+  count,
+  onConfirm,
+  onClose,
+}: {
+  count: number
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bulk-retire-title"
+      aria-describedby="bulk-retire-desc"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        aria-hidden="true"
+        onClick={onClose}
+      />
+      {/* Panel */}
+      <div className="relative w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        {/* Header */}
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" aria-hidden="true" />
+          </div>
+          <div>
+            <h2
+              id="bulk-retire-title"
+              className="text-base font-semibold text-gray-900 dark:text-gray-100"
+            >
+              Retire {count} certificate{count !== 1 ? 's' : ''}?
+            </h2>
+            <p
+              id="bulk-retire-desc"
+              className="mt-1 text-sm text-gray-600 dark:text-gray-400"
+            >
+              This will permanently retire{' '}
+              <strong className="font-semibold text-gray-900 dark:text-gray-100">
+                {count} certificate{count !== 1 ? 's' : ''}
+              </strong>
+              . Retirement is <span className="font-semibold text-red-600 dark:text-red-400">irreversible</span> — retired
+              certificates cannot be transferred or used again.
+            </p>
+          </div>
+        </div>
+
+        {/* Warning box */}
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+          ⚠ This action cannot be undone. Please confirm you want to proceed.
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose() }}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          >
+            Retire {count} certificate{count !== 1 ? 's' : ''}
+          </button>
+        </div>
+
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          aria-label="Close dialog"
+          className="absolute right-4 top-4 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function CertificatesPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -47,6 +134,7 @@ export default function CertificatesPage() {
   const [transferring, setTransferring] = useState<Certificate | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRetiring, setBulkRetiring] = useState(false)
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
 
   // Read filter state from URL
   const q = searchParams.get('q') ?? ''
@@ -205,14 +293,14 @@ export default function CertificatesPage() {
           {/* Search */}
           <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <input
                 type="search"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Cert ID or meter ID…"
                 aria-label="Search by certificate ID or meter ID"
-                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                className="w-56 rounded-md border border-gray-300 bg-white py-1.5 ps-8 pe-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <button
@@ -281,7 +369,7 @@ export default function CertificatesPage() {
           )}
 
           {response && (
-            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+            <span className="ms-auto text-xs text-gray-400 dark:text-gray-500">
               {response.total} result{response.total !== 1 ? 's' : ''}
             </span>
           )}
@@ -294,9 +382,9 @@ export default function CertificatesPage() {
               {selected.size} certificate{selected.size !== 1 ? 's' : ''} selected
             </span>
             <button
-              onClick={handleBulkRetire}
+              onClick={() => setShowBulkConfirm(true)}
               disabled={bulkRetiring || !connected}
-              className="ml-auto rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="ms-auto rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {bulkRetiring ? 'Retiring…' : 'Retire selected'}
             </button>
@@ -449,6 +537,14 @@ export default function CertificatesPage() {
             kwh={transferring.kwh}
             onConfirm={handleTransfer}
             onClose={() => setTransferring(null)}
+          />
+        )}
+
+        {showBulkConfirm && (
+          <BulkRetireConfirmModal
+            count={selected.size}
+            onConfirm={handleBulkRetire}
+            onClose={() => setShowBulkConfirm(false)}
           />
         )}
       </div>

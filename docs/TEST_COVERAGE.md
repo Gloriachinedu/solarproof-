@@ -9,7 +9,7 @@ This document defines coverage goals, critical modules, and failure criteria for
 | Layer | Tool | Target | Minimum to pass CI |
 |---|---|---|---|
 | Soroban contracts (Rust) | `cargo test` + `cargo llvm-cov` | **90 %** line coverage | **80 %** |
-| API routes (Next.js) | Jest / Vitest | **80 %** line coverage | **70 %** |
+| API routes (Next.js) | Jest / Vitest | **90 %** line coverage | **80 %** |
 | Frontend components | Vitest + React Testing Library | **70 %** line coverage | **60 %** |
 | Shared `packages/stellar` | Vitest | **85 %** line coverage | **75 %** |
 
