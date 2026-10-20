@@ -2,10 +2,14 @@
 // .
 
 import { useState } from 'react'
-import { Vote, Plus, Clock, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp } from 'lucide-react'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Vote, Plus, Clock, CheckCircle, XCircle, Minus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useWallet } from '@/hooks/useWallet'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ProposalListSkeleton } from '@/components/skeleton'
+
+const PAGE_SIZES = [10, 25, 50] as const
+type PageSize = typeof PAGE_SIZES[number]
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -24,12 +28,34 @@ interface Proposal {
   userVote?: VoteChoice
 }
 
+interface ProposalsPage {
+  data: Proposal[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
-async function fetchProposals(): Promise<Proposal[]> {
-  const res = await fetch('/api/governance')
+async function fetchProposals(page: number, pageSize: PageSize): Promise<ProposalsPage> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  const res = await fetch(`/api/governance?${params.toString()}`)
   if (!res.ok) throw new Error('Failed to load proposals')
-  return res.json()
+  const json = await res.json()
+  // Support both paginated (ProposalsPage) and legacy array responses
+  if (Array.isArray(json)) {
+    const start = (page - 1) * pageSize
+    const slice = json.slice(start, start + pageSize)
+    return {
+      data: slice,
+      total: json.length,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(json.length / pageSize)),
+    }
+  }
+  return json as ProposalsPage
 }
 
 async function createProposal(body: {
@@ -143,7 +169,7 @@ function VoteButtons({
         disabled={disabled || !!userVote}
         aria-pressed={active}
         aria-label={`Vote ${label}`}
-        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
           active
             ? `${color} border-transparent`
             : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
@@ -167,10 +193,12 @@ function ProposalCard({
   proposal,
   onVote,
   walletConnected,
+  isVoting,
 }: {
   proposal: Proposal
   onVote: (id: string, choice: VoteChoice) => void
   walletConnected: boolean
+  isVoting: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const isActive = proposal.status === 'active' && new Date(proposal.ends_at) > new Date()
@@ -224,10 +252,19 @@ function ProposalCard({
             <VoteButtons
               proposalId={proposal.id}
               userVote={proposal.userVote}
-              disabled={!walletConnected}
+              disabled={!walletConnected || isVoting}
               onVote={onVote}
             />
-            {proposal.userVote && (
+            {isVoting && (
+              <p role="status" aria-live="polite" className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+                <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Submitting vote…
+              </p>
+            )}
+            {!isVoting && proposal.userVote && (
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 You voted <span className="font-medium capitalize">{proposal.userVote}</span>.
               </p>
@@ -380,7 +417,7 @@ function CreateProposalForm({ onCreated }: { onCreated: () => void }) {
           type="submit"
           disabled={mutation.isPending}
           aria-busy={mutation.isPending}
-          className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           {mutation.isPending ? 'Submitting…' : connected ? 'Submit Proposal' : 'Connect Wallet & Submit'}
@@ -440,21 +477,65 @@ function Field({
 export default function GovernancePage() {
   const { connected } = useWallet()
   const qc = useQueryClient()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [showForm, setShowForm] = useState(false)
   const [voteError, setVoteError] = useState<string | null>(null)
+  const [tallyRefetching, setTallyRefetching] = useState(false)
 
-  const { data: proposals = [], isLoading, error } = useQuery({
-    queryKey: ['proposals'],
-    queryFn: fetchProposals,
+  // Pagination state from URL
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
+  const pageSize = (PAGE_SIZES.includes(Number(searchParams.get('page_size') ?? '') as PageSize)
+    ? Number(searchParams.get('page_size'))
+    : 10) as PageSize
+
+  function pushPage(nextPage: number, nextSize?: PageSize) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('page', String(nextPage))
+    if (nextSize) params.set('page_size', String(nextSize))
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
+  const { data: pageData, isLoading, error } = useQuery({
+    queryKey: ['proposals', page, pageSize],
+    queryFn: () => fetchProposals(page, pageSize),
+    placeholderData: (prev) => prev,
   })
+
+  const proposals = pageData?.data ?? []
+  const total = pageData?.total ?? 0
+  const totalPages = pageData?.totalPages ?? 1
 
   const voteMutation = useMutation({
     mutationFn: ({ id, choice }: { id: string; choice: VoteChoice }) => castVote(id, choice),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['proposals'] })
+    // Optimistic update: immediately reflect the user's vote and increment the tally
+    onMutate: async ({ id, choice }) => {
+      await qc.cancelQueries({ queryKey: ['proposals'] })
+      const previous = qc.getQueryData<Proposal[]>(['proposals'])
+      qc.setQueryData<Proposal[]>(['proposals'], (old = []) =>
+        old.map((p) => {
+          if (p.id !== id) return p
+          const newTally = { ...p.tally, [choice]: p.tally[choice] + 1 }
+          return { ...p, tally: newTally, userVote: choice }
+        })
+      )
+      return { previous }
+    },
+    onError: (err: Error, _vars, context) => {
+      // Roll back optimistic update on failure
+      if (context?.previous) {
+        qc.setQueryData(['proposals'], context.previous)
+      }
+      setVoteError(err.message)
+    },
+    onSettled: async () => {
+      // Re-fetch to sync server-authoritative tally
+      setTallyRefetching(true)
+      await qc.invalidateQueries({ queryKey: ['proposals'] })
+      setTallyRefetching(false)
       setVoteError(null)
     },
-    onError: (err: Error) => setVoteError(err.message),
   })
 
   function handleVote(id: string, choice: VoteChoice) {
@@ -468,6 +549,8 @@ export default function GovernancePage() {
 
   const active = proposals.filter((p) => p.status === 'active' && new Date(p.ends_at) > new Date())
   const closed = proposals.filter((p) => p.status !== 'active' || new Date(p.ends_at) <= new Date())
+  // Id of the proposal currently being voted on (for per-card loading state)
+  const votingProposalId = voteMutation.isPending ? voteMutation.variables?.id : undefined
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:py-10">
@@ -485,7 +568,7 @@ export default function GovernancePage() {
           onClick={() => setShowForm((v) => !v)}
           aria-expanded={showForm}
           aria-controls="create-proposal-section"
-          className="flex items-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+          className="flex items-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
           New Proposal
@@ -514,6 +597,20 @@ export default function GovernancePage() {
         </div>
       )}
 
+      {tallyRefetching && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-4 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
+        >
+          <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Refreshing vote tallies…
+        </div>
+      )}
+
       {isLoading ? (
         <ProposalListSkeleton count={2} />
       ) : active.length > 0 ? (
@@ -523,7 +620,7 @@ export default function GovernancePage() {
           </h2>
           <div className="space-y-4">
             {active.map((p) => (
-              <ProposalCard key={p.id} proposal={p} onVote={handleVote} walletConnected={connected} />
+              <ProposalCard key={p.id} proposal={p} onVote={handleVote} walletConnected={connected} isVoting={votingProposalId === p.id} />
             ))}
           </div>
         </section>
@@ -536,7 +633,7 @@ export default function GovernancePage() {
           </h2>
           <div className="space-y-4">
             {closed.map((p) => (
-              <ProposalCard key={p.id} proposal={p} onVote={handleVote} walletConnected={connected} />
+              <ProposalCard key={p.id} proposal={p} onVote={handleVote} walletConnected={connected} isVoting={false} />
             ))}
           </div>
         </section>
@@ -546,6 +643,58 @@ export default function GovernancePage() {
         <p className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
           No proposals found for your cooperative.
         </p>
+      )}
+
+      {/* ── Pagination Controls ───────────────────────────────────────────── */}
+      {!isLoading && total > 0 && (
+        <nav
+          aria-label="Proposals pagination"
+          className="mt-8 flex flex-wrap items-center justify-between gap-4"
+        >
+          {/* Page size selector */}
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <label htmlFor="page-size-select" className="text-xs">
+              Per page
+            </label>
+            <select
+              id="page-size-select"
+              value={pageSize}
+              onChange={(e) => pushPage(1, Number(e.target.value) as PageSize)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            >
+              {PAGE_SIZES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Total count */}
+          <p className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
+            {total} proposal{total !== 1 ? 's' : ''} &mdash; page {page} of {totalPages}
+          </p>
+
+          {/* Prev / Next */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => pushPage(page - 1)}
+              disabled={page <= 1}
+              aria-label="Previous page"
+              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              Previous
+            </button>
+            <button
+              onClick={() => pushPage(page + 1)}
+              disabled={page >= totalPages}
+              aria-label="Next page"
+              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        </nav>
       )}
     </div>
   )
