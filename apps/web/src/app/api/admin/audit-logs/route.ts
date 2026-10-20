@@ -22,6 +22,8 @@ export async function GET(req: NextRequest) {
 
   const { limit, offset } = parsed.data
 
+  // Service role required: admin compliance export needs cross-tenant audit log
+  // visibility. See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
   const { data, error, count } = await db
     .from('audit_logs')

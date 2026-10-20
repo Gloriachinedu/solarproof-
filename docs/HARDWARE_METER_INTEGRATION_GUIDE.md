@@ -4,6 +4,24 @@ This guide is for hardware manufacturers who want to integrate their smart meter
 
 ---
 
+## Quick Start (5 Steps)
+
+New to SolarProof hardware integration? Follow these five steps to get your first signed reading submitted. Each step links to the detailed section below.
+
+1. **Generate a keypair** — run `node scripts/gen-meter-key.mjs` to produce `meter-key.json` (an Ed25519 keypair for testing). See [Step 1 — Generate and Register the Meter Keypair](#step-1--generate-and-register-the-meter-keypair).
+
+2. **Register the public key** — insert the `public_key_hex` from `meter-key.json` into the `meters` table with your cooperative ID. See [Step 1 — Generate and Register the Meter Keypair](#step-1--generate-and-register-the-meter-keypair).
+
+3. **Compute the canonical reading hash** — `SHA-256(meter_id_utf8 || kwh_stroops_le64 || timestamp_le64)`. See [Step 2 — Compute the Canonical Reading Hash](#step-2--compute-the-canonical-reading-hash).
+
+4. **Sign the hash with Ed25519** — produce a 64-byte signature (128-char hex) using your meter's private key. See [Step 3 — Sign the Reading](#step-3--sign-the-reading).
+
+5. **Submit the reading** — `POST /api/readings` with `{ meter_id, kwh, timestamp, signature_hex }`, or use `node scripts/send-reading.mjs --meter-id <uuid> --kwh 12.5 --key ./meter-key.json --api http://localhost:3000` to validate end-to-end. See [Step 4 — Submit the Reading](#step-4--submit-the-reading) and [Step 5 — End-to-End Test](#step-5--end-to-end-test-with-reference-scripts).
+
+> **Reference scripts:** `scripts/gen-meter-key.mjs` generates a keypair; `scripts/send-reading.mjs` signs and submits a reading; `scripts/e2e-meter-reading-flow.mjs` runs the full flow. All require Node.js v22+ and are for development/testing only.
+
+---
+
 ## Hardware Requirements
 
 ### Ed25519 Key Storage

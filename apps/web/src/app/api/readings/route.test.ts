@@ -120,11 +120,21 @@ describe('POST /api/readings', () => {
 
   it('returns 400 when body is not JSON', async () => {
     const req = { json: () => Promise.reject(new Error('bad json')), headers: { get: () => null } } as unknown as Parameters<typeof POST>[0]
-    expect((await POST(req)).status).toBe(400)
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toHaveProperty('error')
+    expect(body).toHaveProperty('code')
+    expect(typeof body.error).toBe('string')
   })
 
   it('returns 400 when meter_id is missing', async () => {
-    expect((await POST(makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128), nonce: 'n' }))).status).toBe(400)
+    const res = await POST(makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128), nonce: 'n' }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toHaveProperty('error')
+    expect(body).toHaveProperty('code')
+    expect(body).toHaveProperty('details')
   })
 
   it('returns 400 when meter_id is not a UUID', async () => {
@@ -221,6 +231,8 @@ describe('POST /api/readings', () => {
     expect(payload.readingHashHex).toBe(
       computeReadingHash(METER_ID, kwhToStroops(KWH), BigInt(body.timestamp)).toString('hex')
     )
+    expect(payload.kwh).toBe(KWH)
+    expect(kwhToStroops(KWH)).toBe(125_000_000n)
   })
 
   // ── API key validation ─────────────────────────────────────────────────────
@@ -239,5 +251,23 @@ describe('POST /api/readings', () => {
     const res = await POST(makeRequest(await makeBody(privKey), 'mk_wrong_key'))
     expect(res.status).toBe(401)
     expect((await res.json()).error).toMatch(/api key/i)
+  })
+
+  // ── error schema conformance ───────────────────────────────────────────────
+
+  it('all error responses conform to { error: string, code: string } schema', async () => {
+    const cases = [
+      // 400 validation
+      makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128), nonce: 'n' }),
+      // 400 invalid JSON treated as null body
+      { json: () => Promise.resolve(null), headers: { get: () => null } } as unknown as Parameters<typeof POST>[0],
+    ]
+
+    for (const req of cases) {
+      const res = await POST(req)
+      const body = await res.json()
+      expect(typeof body.error).toBe('string')
+      expect(typeof body.code).toBe('string')
+    }
   })
 })

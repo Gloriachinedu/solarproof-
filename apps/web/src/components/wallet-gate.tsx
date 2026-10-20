@@ -158,10 +158,10 @@ function PagePrompt({
         onClick={onConnect}
         disabled={reconnecting}
         aria-busy={reconnecting}
-        className={`inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-medium text-gray-900 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+        className={`inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-medium text-gray-900 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
           isReconnect
-            ? 'bg-red-500 text-white hover:bg-red-600 focus:ring-red-500'
-            : 'bg-yellow-400 hover:bg-yellow-500 focus:ring-yellow-400'
+            ? 'bg-red-500 text-white hover:bg-red-600 focus-visible:ring-red-500'
+            : 'bg-yellow-400 hover:bg-yellow-500 focus-visible:ring-yellow-400'
         }`}
       >
         {reconnecting ? (
@@ -240,10 +240,10 @@ function InlinePrompt({
         onClick={onConnect}
         disabled={reconnecting}
         aria-busy={reconnecting}
-        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${
+        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${
           isReconnect
-            ? 'bg-red-500 text-white hover:bg-red-600 focus:ring-red-500'
-            : 'bg-yellow-400 text-gray-900 hover:bg-yellow-500 focus:ring-yellow-400'
+            ? 'bg-red-500 text-white hover:bg-red-600 focus-visible:ring-red-500'
+            : 'bg-yellow-400 text-gray-900 hover:bg-yellow-500 focus-visible:ring-yellow-400'
         }`}
       >
         {reconnecting ? (

@@ -101,16 +101,22 @@ SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 50;
 
 Complete within 48 hours of resolution for P1/P2 incidents.
 
-1. Write a postmortem document covering:
+1. Copy [post-mortem-template.md](post-mortem-template.md) to
+   `docs/runbooks/post-mortems/YYYY-MM-DD-<slug>.md` and fill in all sections.
+   The template covers:
    - Timeline (detection → containment → resolution)
    - Root cause
    - Impact (users affected, data affected, duration)
-   - What went well
-   - What went wrong
-   - Action items with owners and due dates
+   - What went well / what went wrong
+   - Remediation steps
+   - Follow-up action items with owners and due dates
 2. Update this runbook if any procedure was unclear or missing
 3. Add monitoring or alerting to catch the same issue earlier next time
 4. Share the postmortem with the team
+5. Track all follow-up action items as GitHub issues
+
+Past post-mortems are stored in [`docs/runbooks/post-mortems/`](post-mortems/).
+See [2026-08-14-mint-outage.md](post-mortems/2026-08-14-mint-outage.md) as an example.
 
 ---
 

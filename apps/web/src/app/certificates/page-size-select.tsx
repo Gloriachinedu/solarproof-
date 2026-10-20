@@ -23,7 +23,7 @@ export function PageSizeSelect({ current }: { current: number }) {
         id="page-size"
         value={current}
         onChange={handleChange}
-        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
       >
         {OPTIONS.map((n) => (
           <option key={n} value={n}>
