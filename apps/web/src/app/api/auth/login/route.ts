@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@supabase/supabase-js'
 import { env } from '@/env'
+import {
+  isAccountLocked,
+  recordFailedAttempt,
+  resetFailedAttempts,
+  lockoutRemainingSeconds,
+} from '@/lib/account-lockout'
+import { sendLockoutEmail } from '@/lib/email'
 
 const LoginSchema = z.object({
   email: z.string().trim().email(),
@@ -17,14 +24,13 @@ const REFRESH_TOKEN_COOKIE = 'sp_refresh_token'
  * POST /api/auth/login
  *
  * Exchanges email + password for Supabase session tokens and stores them in
- * HttpOnly, Secure, SameSite=Strict cookies so they are never accessible to
- * JavaScript (mitigates XSS token theft).
+ * HttpOnly, Secure, SameSite=Strict cookies (issue #113).
  *
- * The response body no longer contains the raw tokens — clients should treat
- * the presence of a 200 response as the success signal and rely on the cookies
- * being set automatically by the browser.
- *
- * Closes #113.
+ * Brute-force protection (issue #115):
+ *   - Checks whether the account is currently locked before attempting auth.
+ *   - Records failed attempts in Redis; locks the account after MAX_ATTEMPTS
+ *     failures within the 15-minute window and notifies the user via email.
+ *   - Resets the counter on successful login.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
@@ -33,17 +39,45 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
+  const { email, password } = parsed.data
+
+  // ── Account lockout check (issue #115) ────────────────────────────────────
+  const locked = await isAccountLocked(email)
+  if (locked) {
+    const remaining = await lockoutRemainingSeconds(email)
+    return NextResponse.json(
+      {
+        error: 'Account temporarily locked due to too many failed login attempts.',
+        retry_after_seconds: remaining,
+      },
+      { status: 429 }
+    )
+  }
+
+  // ── Supabase authentication ───────────────────────────────────────────────
   const supabase = createClient(
     env.NEXT_PUBLIC_SUPABASE_URL,
     env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     { auth: { persistSession: false } }
   )
 
-  const { data, error } = await supabase.auth.signInWithPassword(parsed.data)
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error || !data.session) {
+    // Record failure; lock if threshold reached
+    const justLocked = await recordFailedAttempt(email)
+    if (justLocked) {
+      // Fire-and-forget — do not let email failure block the response
+      sendLockoutEmail(email).catch((err: unknown) =>
+        console.error('[lockout] email send failed', err)
+      )
+    }
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
   }
 
+  // Successful login — reset failure counter
+  await resetFailedAttempts(email)
+
+  // ── Set HttpOnly cookies (issue #113) ─────────────────────────────────────
   const isProduction = process.env.NODE_ENV === 'production'
   const cookieOptions = {
     httpOnly: true,
@@ -58,15 +92,11 @@ export async function POST(req: NextRequest) {
     token_type: 'Bearer',
   })
 
-  // Store the access token in an HttpOnly cookie.
-  // expires_in is typically 3600 s (1 h) for Supabase access tokens.
   res.cookies.set(ACCESS_TOKEN_COOKIE, data.session.access_token, {
     ...cookieOptions,
     maxAge: data.session.expires_in ?? 3600,
   })
 
-  // Store the refresh token in a separate HttpOnly cookie with a longer TTL.
-  // Supabase refresh tokens are valid for 60 days by default.
   res.cookies.set(REFRESH_TOKEN_COOKIE, data.session.refresh_token, {
     ...cookieOptions,
     maxAge: 60 * 24 * 60 * 60, // 60 days
