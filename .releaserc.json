@@ -16,6 +16,8 @@
         "types": [
           { "type": "feat", "section": "Features" },
           { "type": "fix", "section": "Bug Fixes" },
+          { "type": "security", "section": "Security" },
+          { "type": "contracts", "section": "Smart Contracts" },
           { "type": "perf", "section": "Performance" },
           { "type": "docs", "section": "Documentation" },
           { "type": "chore", "hidden": true },
