@@ -44,7 +44,10 @@ export async function GET(req: NextRequest) {
   const parsedQuery = QuerySchema.safeParse(queryParams)
 
   if (!parsedQuery.success) {
-    return NextResponse.json({ error: parsedQuery.error.flatten() }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Invalid query parameters', code: ErrorCategory.VALIDATION, details: parsedQuery.error.flatten() },
+      { status: 400 }
+    )
   }
 
   const { limit, cursor } = parsedQuery.data
@@ -66,7 +69,12 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    return NextResponse.json(
+      { error: 'Failed to fetch readings', code: ErrorCategory.DB_QUERY },
+      { status: 500 }
+    )
+  }
 
   const rows = data ?? []
   const hasMore = rows.length > limit
@@ -149,10 +157,19 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null)
+  if (body === null) {
+    return NextResponse.json(
+      { error: 'Request body must be valid JSON', code: ErrorCategory.VALIDATION },
+      { status: 400 }
+    )
+  }
   const parsed = ReadingSchema.safeParse(body)
   if (!parsed.success) {
     log.warn('readings.post.invalid_body', { errors: parsed.error.flatten() })
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Invalid request body', code: ErrorCategory.VALIDATION, details: parsed.error.flatten() },
+      { status: 400 }
+    )
   }
 
   const { meter_id, kwh, timestamp, signature_hex, nonce } = parsed.data
@@ -163,7 +180,10 @@ export async function POST(req: NextRequest) {
   const ageMs = Date.now() - (timestamp * 1000)
   if (ageMs > 5 * 60 * 1000 || ageMs < -60 * 1000) {
     log.warn('readings.post.stale_timestamp', { meter_id, timestamp })
-    return NextResponse.json({ error: 'Reading timestamp is too old or in the future' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Reading timestamp is too old or in the future', code: ErrorCategory.VALIDATION },
+      { status: 400 }
+    )
   }
 
   // Idempotency check: return cached response if nonce was seen within 24 h
@@ -192,14 +212,20 @@ export async function POST(req: NextRequest) {
 
   if (!meter) {
     log.warn('readings.post.meter_not_found_or_revoked', { meter_id })
-    return NextResponse.json({ error: 'Meter not found, inactive, or revoked' }, { status: 404 })
+    return NextResponse.json(
+      { error: 'Meter not found, inactive, or revoked', code: ErrorCategory.VALIDATION },
+      { status: 404 }
+    )
   }
 
   // Validate API key before Ed25519 signature check
   const apiKey = req.headers.get('x-api-key')
   if (!apiKey || apiKey !== meter.api_key) {
     log.warn('readings.post.invalid_api_key', { meter_id })
-    return NextResponse.json({ error: 'Invalid or missing API key' }, { status: 401 })
+    return NextResponse.json(
+      { error: 'Invalid or missing API key', code: ErrorCategory.UNAUTHORIZED },
+      { status: 401 }
+    )
   }
 
   // Rate limit: 60 requests/minute per meter public key
@@ -207,7 +233,7 @@ export async function POST(req: NextRequest) {
   if (!rl.allowed) {
     log.warn('readings.post.rate_limited', { meter_id })
     return NextResponse.json(
-      { error: 'Rate limit exceeded' },
+      { error: 'Rate limit exceeded', code: ErrorCategory.VALIDATION },
       { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } }
     )
   }
@@ -225,7 +251,10 @@ export async function POST(req: NextRequest) {
 
   if (!sigValid) {
     log.warn('readings.post.invalid_signature', { meter_id })
-    return NextResponse.json({ error: 'Invalid meter signature' }, { status: 401 })
+    return NextResponse.json(
+      { error: 'Invalid meter signature', code: ErrorCategory.UNAUTHORIZED },
+      { status: 401 }
+    )
   }
 
   // Persist reading; Stellar anchor + mint will be processed asynchronously.
@@ -271,7 +300,10 @@ export async function POST(req: NextRequest) {
   const recipient = coop?.admin_address
   if (!recipient) {
     log.error('readings.post.missing_recipient', { reading_id: reading.id, cooperative_id: meter.cooperative_id })
-    return NextResponse.json({ error: 'No cooperative admin address' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'No cooperative admin address', code: ErrorCategory.INTERNAL },
+      { status: 500 }
+    )
   }
 
   const jobId = await enqueue('anchor_and_mint', {

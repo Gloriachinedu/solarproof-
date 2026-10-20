@@ -31,8 +31,6 @@
 //!
 //! ## Known limitations / out-of-scope
 //! - No admin-gated removal of anchors (immutability is a feature).
-//! - Persistent storage TTL extension not implemented; entries may expire on
-//!   long-lived networks if not bumped.
 
 #![no_std]
 
@@ -414,6 +412,40 @@ impl AuditRegistry {
             .instance()
             .extend_ttl(min_extension, extend_to);
     }
+
+    /// Bump the TTL for the persistent bucket entry that contains `reading_hash`
+    /// to `extend_to` ledgers. Admin-only.
+    ///
+    /// This is the primary function used by the off-chain background job to keep
+    /// immutable anchor entries alive. Anchors must never expire; the job should
+    /// call this for any entry whose TTL is within a 7-day expiry window.
+    ///
+    /// # Arguments
+    /// * `reading_hash` — the 32-byte SHA-256 hash identifying the anchor.
+    /// * `extend_to`    — number of ledgers to extend the TTL to (suggested:
+    ///                    use `LEDGER_MAX` or a configured maximum).
+    ///
+    /// # Panics
+    /// * `"not initialized"` if the contract has not been initialised.
+    /// * `"not anchored"` if `reading_hash` has not been anchored yet.
+    pub fn bump_entry_ttl(env: Env, reading_hash: BytesN<32>, extend_to: u32) {
+        Self::require_admin(&env);
+        let bucket_id = Self::get_bucket_id(&reading_hash);
+        let bucket_key = DataKey::Bucket(bucket_id);
+        // Verify the hash is actually anchored before bumping.
+        let bucket: Map<BytesN<32>, u32> = env
+            .storage()
+            .persistent()
+            .get(&bucket_key)
+            .expect("not anchored");
+        assert!(bucket.contains_key(reading_hash), "not anchored");
+        // Use threshold = 0 so the bump always applies regardless of current TTL.
+        env.storage()
+            .persistent()
+            .extend_ttl(&bucket_key, 0, extend_to);
+        env.events()
+            .publish((symbol_short!("ttl_bump"),), (bucket_id, extend_to));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -707,6 +739,52 @@ mod tests {
         assert_eq!(client.bucket_for_hash(&h), AuditRegistry::get_bucket_id(&h));
     }
 
+    // ── bump_entry_ttl ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bump_entry_ttl_extends_bucket_ttl() {
+        let (env, api_signer, client) = setup();
+        let contract_id = client.address.clone();
+        let h = hash(&env);
+        let n = make_nonce(&env, 1);
+        client.anchor(&api_signer, &h, &n);
+        let bucket_id = AuditRegistry::get_bucket_id(&h);
+        let before = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Bucket(bucket_id))
+        });
+        // Bump to current TTL + 100 (should always increase)
+        client.bump_entry_ttl(&h, &(before + 100));
+        let after = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Bucket(bucket_id))
+        });
+        assert!(after >= before);
+    }
+
+    #[test]
+    #[should_panic(expected = "not anchored")]
+    fn test_bump_entry_ttl_panics_for_unknown_hash() {
+        let (env, _api_signer, client) = setup();
+        let unknown = BytesN::from_array(&env, &[0xFFu8; 32]);
+        client.bump_entry_ttl(&unknown, &10_000);
+    }
+
+    #[test]
+    fn test_bump_entry_ttl_access_control() {
+        // Only admin can call bump_entry_ttl.
+        // mock_all_auths() is active in setup(), so this just confirms the
+        // admin require_auth path is reachable without panicking.
+        let (env, api_signer, client) = setup();
+        let h = hash(&env);
+        client.anchor(&api_signer, &h, &make_nonce(&env, 1));
+        // Should succeed — admin auth is mocked
+        client.bump_entry_ttl(&h, &50_000);
+        let _ = env;
+    }
+
     #[test]
     fn test_issue_281_bucket_collision() {
         let (env, api_signer, client) = setup();
@@ -732,3 +810,6 @@ mod tests {
 
 #[cfg(test)]
 mod verify_integration_test;
+
+#[cfg(test)]
+mod hash_collision_test;

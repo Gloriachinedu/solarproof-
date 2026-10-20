@@ -47,5 +47,38 @@ jobs:
         run: cargo test --all
         working-directory: apps/contracts
 
+      - name: Run property-based tests (energy_token)
+        run: cargo test --manifest-path apps/contracts/proptest/Cargo.toml
+        env:
+          PROPTEST_CASES: "500"
+
       - name: Verify contract snapshots are unchanged
         run: bash scripts/check-contract-snapshots.sh
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        id: cargo_audit
+        run: cargo audit 2>&1 | tee /tmp/cargo-audit.txt; exit ${PIPESTATUS[0]}
+        working-directory: apps/contracts
+        continue-on-error: true
+
+      - name: Post cargo audit results as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/cargo-audit.txt', 'utf8');
+            const status = '${{ steps.cargo_audit.outcome }}' === 'success' ? '✅' : '❌';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### ${status} cargo audit\n\`\`\`\n${output.slice(0, 6000)}\n\`\`\``
+            });
+
+      - name: Fail if cargo audit found vulnerabilities
+        if: steps.cargo_audit.outcome == 'failure'
+        run: exit 1

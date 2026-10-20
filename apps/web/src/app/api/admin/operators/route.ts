@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
   const err = requireAdmin(req)
   if (err) return err
 
+  // Service role required: admin endpoint needs cross-cooperative visibility
+  // to list all cooperatives. See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
   const { data, error } = await db
     .from('cooperatives')

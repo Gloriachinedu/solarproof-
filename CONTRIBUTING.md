@@ -44,13 +44,15 @@ pnpm install --frozen-lockfile
 [optional footer: BREAKING CHANGE: ..., Closes #<issue>]
 ```
 
-**Types:** `feat` · `fix` · `docs` · `chore` · `refactor` · `test` · `ci` · `perf`
+**Types:** `feat` · `fix` · `security` · `contracts` · `docs` · `chore` · `refactor` · `test` · `ci` · `perf`
 
 **Scopes:** `api` · `contracts` · `web` · `stellar` · `ci` · `docs`
 
 ```
 feat(contracts): add batch anchor support
 fix(api): validate Ed25519 signature before DB write
+security(api): add CSRF protection to operator endpoints
+contracts: optimize audit_registry storage for large ledgers
 docs(contracts): document energy_token interface
 chore(ci): configure Turborepo remote caching
 feat(contracts)!: rename anchor() parameter kwh → kwh_stroops

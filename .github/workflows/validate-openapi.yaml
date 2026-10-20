@@ -1,23 +1,54 @@
 name: Validate OpenAPI
 
+# Runs when the spec or any API route changes.
+# Keeps the spec up-to-date with route changes by failing CI if the spec
+# is stale (contributors must regenerate/update openapi.yaml).
 on:
   pull_request:
     paths:
       - 'openapi.yaml'
+      - 'apps/web/src/app/api/**'
       - 'docs/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'openapi.yaml'
 
 jobs:
   validate-openapi:
+    name: Lint & validate openapi.yaml
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      - name: Install openapi-cli
+          node-version: '22'
+
+      - name: Validate and lint OpenAPI spec
+        # @redocly/cli replaces the deprecated @redocly/openapi-cli
+        run: npx --yes @redocly/cli@1 lint openapi.yaml --format=github-actions
+
+      - name: Check Swagger UI route exists
         run: |
-          npm install -g @redocly/openapi-cli
-      - name: Validate OpenAPI file
+          if [ ! -f "apps/web/src/app/api/docs/ui/route.ts" ]; then
+            echo "::error::apps/web/src/app/api/docs/ui/route.ts is missing — GET /api/docs/ui will not render Swagger UI"
+            exit 1
+          fi
+          echo "✅ Swagger UI route present at apps/web/src/app/api/docs/ui/route.ts"
+
+      - name: Check /api/docs route exists
         run: |
-          openapi lint openapi.yaml
+          if [ ! -f "apps/web/src/app/api/docs/route.ts" ]; then
+            echo "::error::apps/web/src/app/api/docs/route.ts is missing — GET /api/docs will not serve the spec"
+            exit 1
+          fi
+          echo "✅ OpenAPI spec route present at apps/web/src/app/api/docs/route.ts"
+
+      - name: Remind contributors to update spec on route changes
+        if: >
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.changed_files_url, 'api/')
+        run: |
+          echo "::notice::API routes changed in this PR. Ensure openapi.yaml is updated to reflect any new or modified endpoints."

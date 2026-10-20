@@ -15,8 +15,11 @@ export async function GET(req: NextRequest) {
   const auth = await requireAuth(req)
   if (isAuthError(auth)) return auth
 
+  // Service role required: proposals JOIN votes needs cross-table visibility;
+  // the auth JWT scopes results via .eq('cooperative_id', auth.cooperativeId).
+  // See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
-  
+
   // Fetch proposals and their vote counts
   const { data, error } = await db
     .from('proposals')
@@ -61,6 +64,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
+  // Service role required: insert needs to write cooperative_id FK without
+  // triggering anon-key RLS write restriction. See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
 
   const endsAt = new Date()
