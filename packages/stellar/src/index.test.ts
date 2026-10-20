@@ -21,11 +21,11 @@ import {
 // ---------------------------------------------------------------------------
 describe('kwhToStroops', () => {
   it('converts whole kWh', () => {
-    expect(kwhToStroops(1)).toBe(1_000n)
+    expect(kwhToStroops(1)).toBe(10_000_000n)
   })
 
   it('converts fractional kWh', () => {
-    expect(kwhToStroops(0.5)).toBe(500n)
+    expect(kwhToStroops(0.5)).toBe(5_000_000n)
   })
 
   it('converts zero', () => {
@@ -33,12 +33,12 @@ describe('kwhToStroops', () => {
   })
 
   it('rounds sub-unit values', () => {
-    // 1.00000001 kWh rounds to 1_000 token units at decimals=3
-    expect(kwhToStroops(1.00000001)).toBe(1_000n)
+    // 1.00000001 kWh rounds to 10_000_000 stroops at decimals=7.
+    expect(kwhToStroops(1.00000001)).toBe(10_000_000n)
   })
 
   it('handles large values', () => {
-    expect(kwhToStroops(1000)).toBe(1_000_000n)
+    expect(kwhToStroops(1000)).toBe(10_000_000_000n)
   })
 
   it('handles the smallest representable unit (0.001 kWh)', () => {
@@ -65,7 +65,7 @@ describe('kwhToStroops', () => {
 // ---------------------------------------------------------------------------
 describe('stroopsToKwh', () => {
   it('converts stroops to kWh', () => {
-    expect(stroopsToKwh(1_000n)).toBe(1)
+    expect(stroopsToKwh(10_000_000n)).toBe(1)
   })
 
   it('converts zero', () => {
@@ -73,7 +73,7 @@ describe('stroopsToKwh', () => {
   })
 
   it('converts fractional result', () => {
-    expect(stroopsToKwh(500n)).toBe(0.5)
+    expect(stroopsToKwh(5_000_000n)).toBe(0.5)
   })
 
   it('round-trips with kwhToStroops', () => {
