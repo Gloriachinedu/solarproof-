@@ -4,6 +4,7 @@ import {
   checkStellarRpc,
   checkRedisUpstash,
   checkRedisBull,
+  type CheckResult,
   type CheckStatus,
 } from '@/lib/health-checks'
 
@@ -27,11 +28,17 @@ export async function GET() {
 
   const httpStatus = overallStatus === 'error' ? 503 : 200
 
+  // Build stellar-specific degraded message per acceptance criteria
+  const stellarField: CheckResult & { message?: string } = stellar.status !== 'ok'
+    ? { ...stellar, message: stellar.error === 'unreachable' || stellar.status === 'error' ? 'unreachable' : 'slow' }
+    : stellar
+
   return NextResponse.json(
     {
       status: overallStatus,
       ts: Date.now(),
-      checks: { database: db, stellar_rpc: stellar, redis_upstash: upstash, redis_bull: bull },
+      checks: { database: db, stellar_rpc: stellarField, redis_upstash: upstash, redis_bull: bull },
+      ...(stellar.status !== 'ok' ? { stellar: stellarField.status === 'error' ? 'unreachable' : 'degraded' } : {}),
     },
     { status: httpStatus }
   )

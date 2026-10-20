@@ -15,6 +15,8 @@ use community_governance::{CommunityGovernance, CommunityGovernanceClient};
 use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
+mod energy_token_props;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
