@@ -47,8 +47,7 @@ export function LanguageSwitcher({ current }: Props) {
         id="language-select"
         value={current}
         onChange={(e) => switchLocale(e.target.value as Locale)}
-        disabled={isSaving}
-        className="cursor-pointer appearance-none rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+        className="cursor-pointer appearance-none rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
       >
         {locales.map((l) => (
           <option key={l} value={l}>

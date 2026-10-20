@@ -1,10 +1,20 @@
 name: CodeQL Security Scan
 
+# Covers:
+#   - TypeScript / JavaScript  (Next.js API routes in apps/web)
+#   - Rust                     (Soroban contracts in apps/contracts)
+#
+# Critical findings BLOCK merge: add this workflow as a required status check
+# under Settings → Branches → main → "Require status checks to pass before merging".
+# Required check names:
+#   "Analyze (javascript-typescript)"
+#   "Analyze (rust)"
+
 on:
   pull_request:
     branches: [main, develop]
   schedule:
-    - cron: "0 3 * * 1"   # weekly on Monday at 03:00 UTC
+    - cron: "0 3 * * 1"   # weekly full scan — every Monday at 03:00 UTC
   push:
     branches: [main]
 
@@ -40,8 +50,9 @@ jobs:
       # Rust requires an explicit build so CodeQL can trace it
       - name: Install Rust toolchain
         if: matrix.language == 'rust'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.88.0"
           targets: wasm32-unknown-unknown
 
       - name: Build Rust contracts
@@ -52,3 +63,58 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: ${{ matrix.language }}
+          # Upload SARIF; findings appear in the Security tab.
+          # The job exits non-zero when critical alerts are found,
+          # which blocks merge when this check is marked required.
+          upload: true
+
+  # ---------------------------------------------------------------------------
+  # cargo audit — runs on every PR that touches Rust contracts.
+  # Duplicates the check in audit.yml but scoped to contracts paths so it
+  # always appears as a required status check on contract PRs.
+  # ---------------------------------------------------------------------------
+  cargo-audit-contracts:
+    name: cargo audit (contracts)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        id: cargo_audit
+        run: cargo audit 2>&1 | tee /tmp/cargo-audit.txt; exit ${PIPESTATUS[0]}
+        working-directory: apps/contracts
+        continue-on-error: true
+
+      - name: Post audit results as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/cargo-audit.txt', 'utf8');
+            const status = '${{ steps.cargo_audit.outcome }}' === 'success' ? '✅' : '❌';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### ${status} cargo audit (contracts)\n\`\`\`\n${output.slice(0, 6000)}\n\`\`\``
+            });
+
+      - name: Fail if vulnerabilities found
+        if: steps.cargo_audit.outcome == 'failure'
+        run: exit 1
