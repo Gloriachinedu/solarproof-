@@ -3,6 +3,8 @@ import { env } from '@/env'
 
 export const DEGRADED_THRESHOLD_MS = 300
 export const TIMEOUT_MS = 450
+/** Timeout for Stellar RPC checks (3 s per acceptance criteria). */
+export const STELLAR_TIMEOUT_MS = 3000
 
 export type CheckStatus = 'ok' | 'degraded' | 'error'
 
@@ -49,15 +51,19 @@ export async function checkStellarRpc(): Promise<CheckResult> {
       fetch(env.NEXT_PUBLIC_STELLAR_RPC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getHealth' }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getLedger', params: { xdr: false } }),
       }),
-      TIMEOUT_MS
+      STELLAR_TIMEOUT_MS
     )
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const latency_ms = Date.now() - start
     return { status: latency_ms > DEGRADED_THRESHOLD_MS ? 'degraded' : 'ok', latency_ms }
   } catch (err) {
-    return { status: 'error', latency_ms: Date.now() - start, error: String(err) }
+    return {
+      status: 'error',
+      latency_ms: Date.now() - start,
+      error: 'unreachable',
+    }
   }
 }
 
