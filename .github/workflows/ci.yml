@@ -225,6 +225,46 @@ jobs:
         run: cargo fuzz run fuzz_vote -- -max_total_time=60 corpus/fuzz_vote
         working-directory: apps/contracts/fuzz
 
+  docker-compose-ci:
+    name: Docker Compose smoke-test (CI resource limits)
+    runs-on: ubuntu-latest
+    # Minimum host requirements: 2 vCPU, 4 GB RAM, 10 GB disk
+    # OOM kills are surfaced via the step below; track rate in CI metrics.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services with CI resource overrides
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            up -d --wait --timeout 120
+        env:
+          COMPOSE_DOCKER_CLI_BUILD: 1
+
+      - name: Check for OOM-killed containers
+        run: |
+          oom_count=0
+          for cid in $(docker compose -f docker-compose.yml -f docker-compose.ci.yml ps -q); do
+            status=$(docker inspect --format='{{.State.OOMKilled}}' "$cid")
+            name=$(docker inspect --format='{{.Name}}' "$cid")
+            if [ "$status" = "true" ]; then
+              echo "::error::OOM kill detected on container $name"
+              oom_count=$((oom_count + 1))
+            fi
+          done
+          echo "oom_kill_count=$oom_count" >> "$GITHUB_OUTPUT"
+          exit $oom_count
+        id: oom_check
+
+      - name: Teardown
+        if: always()
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            down -v
+
   image-scan:
     name: Docker image vulnerability scan (Trivy)
     runs-on: ubuntu-latest
