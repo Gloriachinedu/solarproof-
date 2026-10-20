@@ -64,7 +64,25 @@ High degree of voter apathy and diverse interests.
 
 ---
 
-## Tradeoffs and Best Practices
+## Proposal TTL and Expiry
+
+### How `expires_at` Works (planned — issue #46)
+
+Every proposal will carry an `expires_at: u64` ledger sequence set at creation
+time (`env.ledger().sequence() + VotingPeriod`). Once the current ledger passes
+`expires_at`:
+
+- `vote()` will reject new votes with `"proposal expired"`.
+- `execute()` will reject execution even if the proposal previously passed.
+- Any member may call `close_expired_proposal(proposal_id)` to move the status
+  to `Expired`, freeing storage and making the state explicit.
+
+### Choosing a Voting Period (TTL)
+
+The `VotingPeriod` parameter directly controls `expires_at`. Use the table
+above as a guide. A proposal that expires before enough community members have
+voted cannot be revived — choose a voting period long enough for your community
+to react.
 
 ### Quorum vs. Participation
 - **High Quorum**: Highly secure against hostile takeovers but risks "governance gridlock" where nothing passes due to apathy.
