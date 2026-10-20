@@ -49,13 +49,13 @@ export default function HomePage() {
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
           <Link
             href="/verify"
-            className="w-full rounded-lg bg-yellow-400 px-6 py-3 text-center font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 dark:focus:ring-offset-gray-950 sm:w-auto"
+            className="w-full rounded-lg bg-yellow-400 px-6 py-3 text-center font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 dark:focus:ring-offset-gray-950 sm:w-auto"
           >
             Verify a Certificate
           </Link>
           <Link
             href="/dashboard"
-            className="w-full rounded-lg border border-gray-300 px-6 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 dark:focus:ring-offset-gray-950 sm:w-auto"
+            className="w-full rounded-lg border border-gray-300 px-6 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 dark:focus:ring-offset-gray-950 sm:w-auto"
           >
             Dashboard
           </Link>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Wifi, WifiOff, Radio } from 'lucide-react'
-import { AccessibleLegend } from '@/components/accessible-chart-legend'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 interface ChartPoint {
   label: string
@@ -32,7 +32,7 @@ async function fetchRecentReadings(): Promise<ChartPoint[]> {
 
 type ConnectionStatus = 'connecting' | 'live' | 'polling' | 'error'
 
-export function DashboardChart() {
+function DashboardChartContent() {
   const [data, setData] = useState<ChartPoint[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const wsRef = useRef<WebSocket | null>(null)
@@ -302,5 +302,13 @@ export function DashboardChart() {
         )}
       </figure>
     </section>
+  )
+}
+
+export function DashboardChart() {
+  return (
+    <ErrorBoundary inline label="Dashboard chart">
+      <DashboardChartContent />
+    </ErrorBoundary>
   )
 }

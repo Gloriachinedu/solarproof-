@@ -56,6 +56,33 @@ describe('GET /api/health', () => {
     const body = await res.json()
     expect(body.status).toBe('error')
     expect(body.checks.stellar_rpc.status).toBe('error')
+    // Acceptance criteria: degraded Stellar returns { status: "degraded", stellar: "unreachable" }
+    expect(body.stellar).toBe('unreachable')
+  })
+
+  it('returns degraded response with stellar: unreachable when Stellar RPC times out', async () => {
+    // Simulate timeout by delaying beyond STELLAR_TIMEOUT_MS (3 s) — we just reject
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(
+      (_url: string, opts: { body: string }) => {
+        const req = JSON.parse(opts.body)
+        if (req.method === 'getLedger') return Promise.reject(new Error('timeout'))
+        return Promise.resolve({ ok: true, json: async () => ({}) })
+      }
+    ))
+    const res = await GET()
+    const body = await res.json()
+    expect(['error', 'degraded']).toContain(body.status)
+    expect(body.stellar).toBe('unreachable')
+  })
+
+  it('Stellar RPC call uses getLedger method', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ result: { sequence: 1 } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await GET()
+    const stellarCall = fetchMock.mock.calls.find(([, opts]) => {
+      try { return JSON.parse(opts.body).method === 'getLedger' } catch { return false }
+    })
+    expect(stellarCall).toBeDefined()
   })
 
   it('returns 200 with degraded status when a check is slow', async () => {

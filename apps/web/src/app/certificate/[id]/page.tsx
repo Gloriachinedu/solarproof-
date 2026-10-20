@@ -14,6 +14,7 @@ import {
 import { createServiceClient } from '@/lib/supabase'
 import { CertificateChain, type ChainStep } from '@/components/certificate-chain'
 import { CopyableText } from '@/components/copy-button'
+import { TransferHistoryTimeline } from '@/components/transfer-history-timeline'
 
 // ---------------------------------------------------------------------------
 // Data fetching (server-side, no auth required)
@@ -126,7 +127,7 @@ export default async function CertificatePage({
         <div className="mb-1 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Link
             href="/verify"
-            className="hover:underline focus:outline-none focus:ring-2 focus:ring-yellow-400 rounded"
+            className="hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
           >
             Verify
           </Link>
@@ -159,17 +160,20 @@ export default async function CertificatePage({
       {/* Chain of custody stepper */}
       <CertificateChain steps={steps} />
 
+      {/* Transfer history timeline */}
+      <TransferHistoryTimeline certificateId={id} />
+
       {/* Footer actions */}
       <div className="mt-8 flex flex-wrap gap-3">
         <Link
           href={`/verify?id=${id}`}
-          className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+          className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2"
         >
           Verify this certificate
         </Link>
         <Link
           href="/dashboard"
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
         >
           Dashboard
         </Link>
