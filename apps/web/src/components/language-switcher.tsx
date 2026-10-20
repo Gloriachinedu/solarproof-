@@ -12,11 +12,25 @@ export function LanguageSwitcher({ current }: Props) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [announcement, setAnnouncement] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
 
-  function switchLocale(locale: Locale) {
-    document.cookie = `locale=${locale};path=/;max-age=31536000;SameSite=Lax`
-    setAnnouncement(`Language changed to ${LOCALE_NAMES[locale]}`)
-    startTransition(() => router.refresh())
+  async function switchLocale(locale: Locale) {
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/locale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locale }),
+      })
+      if (!response.ok) throw new Error('Failed to save locale')
+
+      setAnnouncement(`Language changed to ${LOCALE_NAMES[locale]}`)
+      startTransition(() => router.refresh())
+    } catch {
+      setAnnouncement('Unable to change language. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
