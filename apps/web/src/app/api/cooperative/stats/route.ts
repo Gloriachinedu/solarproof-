@@ -25,9 +25,12 @@ export async function GET(req: NextRequest) {
   }
 
   const { date_from, date_to, granularity } = parsed.data
+  // Service role required: analytics RPCs call cross-table aggregations that
+  // span readings and meters; these functions run as SECURITY DEFINER and
+  // require the service role to invoke. See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
 
-  // Defaults: last 30 days if not specified
+  // Defaults: last 30 days
   const now = new Date()
   const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
   const defaultTo = now.toISOString()

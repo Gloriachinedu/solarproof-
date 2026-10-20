@@ -26,6 +26,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
+  // Service role required: vote upsert must be able to read the parent proposal
+  // across the cooperative boundary for validation, then write to votes.
+  // See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
 
   // Verify proposal exists and belongs to user's cooperative

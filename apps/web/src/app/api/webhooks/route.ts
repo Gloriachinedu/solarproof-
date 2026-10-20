@@ -87,6 +87,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
+  // Service role required: webhook registration writes without a user JWT
+  // (called from device/server contexts). See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
   const { data, error } = await db
     .from('webhook_endpoints')
@@ -116,6 +118,8 @@ export async function GET(req: NextRequest) {
 
   const { cooperative_id: cooperativeId } = parsedQuery.data
 
+  // Service role required: webhook listing may be called without a user JWT.
+  // See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
   const { data, error } = await db
     .from('webhook_endpoints')
