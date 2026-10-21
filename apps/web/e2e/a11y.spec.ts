@@ -28,6 +28,73 @@ test.describe('Accessibility (axe-core)', () => {
     await page.goto('/')
     await checkA11y(page)
   })
+
+  test('verify kiosk mode has no critical/serious violations', async ({ page }) => {
+    await page.goto('/verify?kiosk=1')
+    await checkA11y(page)
+  })
+
+  test('verify kiosk mode interactive elements meet touch target size', async ({ page }) => {
+    await page.goto('/verify?kiosk=1')
+
+    const interactive = page.locator(
+      'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"])'
+    )
+
+    const count = await interactive.count()
+    for (let i = 0; i < count; i++) {
+      const el = interactive.nth(i)
+      if (!(await el.isVisible())) continue
+
+      const box = await el.boundingBox()
+      if (!box) continue
+
+      expect(
+        box.width,
+        `Interactive element ${i} width should be at least 44px`
+      ).toBeGreaterThanOrEqual(44)
+      expect(
+        box.height,
+        `Interactive element ${i} height should be at least 44px`
+      ).toBeGreaterThanOrEqual(44)
+    }
+  })
+
+  test('verify kiosk mode interactive elements have visible focus indicators', async ({ page }) => {
+    await page.goto('/verify?kiosk=1')
+
+    const interactive = page.locator(
+      'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [tabindex]:not([tabindex="-1"])'
+    )
+
+    const count = await interactive.count()
+    for (let i = 0; i < count; i++) {
+      const el = interactive.nth(i)
+      if (!(await el.isVisible())) continue
+
+      await el.focus()
+
+      const hasFocusIndicator = await el.evaluate((node) => {
+        const styles = window.getComputedStyle(node)
+        const outlineStyle = styles.outlineStyle
+        const outlineWidth = parseFloat(styles.outlineWidth || '0')
+        const boxShadow = styles.boxShadow
+        const borderColor = styles.borderColor
+        const borderWidth = parseFloat(styles.borderWidth || '0')
+
+        const hasOutline = outlineStyle !== 'none' && outlineWidth > 0
+        const hasBoxShadow = boxShadow !== 'none' && boxShadow !== ''
+        const hasBorder = borderWidth > 0 && borderColor !== ''
+
+        return hasOutline || hasBoxShadow || hasBorder
+      })
+
+      expect(
+        hasFocusIndicator,
+        `Interactive element ${i} should have a visible focus indicator`
+      ).toBe(true)
+    }
+  })
 })
 
 /**

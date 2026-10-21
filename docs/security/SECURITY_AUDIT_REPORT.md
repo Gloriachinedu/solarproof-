@@ -118,7 +118,7 @@ This issue does not affect Stellar Testnet significantly due to shorter ledger c
 **Recommendation:**  
 Implement TTL bump calls after each persistent write, or as a dedicated `extend_ttl(reading_hash)` / `extend_balance_ttl(account)` function callable by any party. Soroban's `env.storage().persistent().extend_ttl(key, threshold, extend_to)` should be called at anchor/mint time and periodically thereafter. Target a `extend_to` value of at least 3,110,400 ledgers (~1 year at 10 s/ledger).
 
-**Status:** Open — tracked in product roadmap.
+**Status:** ✅ **Resolved** — TTL bump logic implemented in all three contracts. Each persistent write is followed by `extend_ttl` targeting ≥3,110,400 ledgers (~1 year). Public `extend_ttl` entrypoints added to `energy_token` (`extend_balance_ttl`), `audit_registry` (`extend_ttl`), and `community_governance` (`extend_ttl`) so any party can refresh entries. See PR #118 (HIGH remediation).
 
 ---
 
@@ -138,7 +138,7 @@ The `multisig_admin` contract exists and provides 2-of-3 signer governance over 
 2. **Medium term:** Move the minting signer to a dedicated server-side KMS (AWS KMS, GCP Cloud KMS, or HashiCorp Vault) so the raw key bytes are never loaded into application memory. Sign Stellar transactions via the KMS signing API.
 3. **Long term:** Consider threshold signing (e.g. 2-of-3 Stellar multi-sig on the minter account) so no single compromised environment can mint unilaterally.
 
-**Status:** Open — architectural improvement required before mainnet.
+**Status:** ✅ **Resolved** — Minter signing migrated to a KMS-backed signer abstraction (`apps/web/src/lib/minter-signer.ts`). Raw key bytes are no longer loaded into application memory in production; transactions are signed via the KMS signing API. `set_minter()` rotation procedure documented in the deployment guide, and the minter account is configured for 2-of-3 Stellar multi-sig as defense in depth. See PR #118 (HIGH remediation).
 
 ---
 
@@ -334,8 +334,8 @@ Consider omitting `signature_hex` from the audit log API response by default, an
 
 | ID | Severity | Finding | Recommended Action | Priority |
 |----|----------|---------|-------------------|----------|
-| H-01 | High | Persistent storage TTL not managed | Implement TTL bump for all persistent entries | Before mainnet |
-| H-02 | High | `MINTER_SECRET_KEY` single-point-of-failure | Move to KMS; consider multi-sig minter | Before mainnet |
+| H-01 | High | Persistent storage TTL not managed | Implement TTL bump for all persistent entries | ✅ Resolved (PR #118) |
+| H-02 | High | `MINTER_SECRET_KEY` single-point-of-failure | Move to KMS; consider multi-sig minter | ✅ Resolved (PR #118) |
 | M-01 | Medium | No on-chain timestamp freshness in `anchor()` | Add ledger timestamp bound check in contract | Pre-launch |
 | M-02 | Medium | Governance Sybil vulnerability | Implement token-weighted voting | Roadmap |
 | M-03 | Medium | No rate limiting on non-readings endpoints | Add rate limiting middleware to all routes | Pre-launch |
@@ -390,13 +390,13 @@ The following issues were confirmed as previously identified and resolved:
 
 The SolarProof smart contracts are well-structured with clear access control patterns, explicit arithmetic overflow protection, and meaningful test coverage. The core cryptographic flow — Ed25519 meter signature → on-chain hash anchor → SEP-41 certificate — is sound.
 
-The two High findings (TTL management and minter key custody) are known operational risks that must be addressed before mainnet deployment. They are architectural gaps rather than exploitable bugs in the current testnet deployment.
+The two High findings (TTL management and minter key custody) have been remediated: TTL bump logic is now implemented across all three contracts (H-01), and minter signing has been migrated to a KMS-backed signer with multi-sig defense in depth (H-02). Both fixes are prerequisites for the independent third-party audit and are marked resolved above.
 
 The Medium and Low findings represent hardening opportunities. Governance Sybil resistance and batch-endpoint atomicity are the most impactful to address for production reliability.
 
 A re-audit is recommended after:
-1. TTL bump logic is implemented in all three contracts (H-01)
-2. The minter key is migrated to a KMS or multi-sig setup (H-02)
+1. ~~TTL bump logic is implemented in all three contracts (H-01)~~ — ✅ Done (PR #118)
+2. ~~The minter key is migrated to a KMS or multi-sig setup (H-02)~~ — ✅ Done (PR #118)
 3. The `nonce` destructuring bug is fixed (I-02)
 
 ---

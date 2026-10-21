@@ -77,6 +77,23 @@ SolarProof does not currently operate a paid bug bounty program. However, we are
 
 ---
 
+## Security Headers
+
+All production responses include the following OWASP-recommended security headers. They are enforced centrally via `next.config.ts` and verified by automated ZAP scans.
+
+| Header | Configured Value |
+|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+| `Content-Security-Policy` | Restrictive policy limiting script, style, and connect sources to trusted origins |
+
+These headers are configured in `next.config.ts` and are verified by ZAP scans. Certain header findings are ignored as false positives in `.zap/rules.tsv` because the headers are injected at the edge. The ZAP scan workflow (`.github/workflows/zap-scan.yml`) runs weekly to ensure these headers remain present.
+
+---
+
 ## Encrypted Communication (PGP)
 
 For sensitive reports, you may use our PGP key to encrypt your email.

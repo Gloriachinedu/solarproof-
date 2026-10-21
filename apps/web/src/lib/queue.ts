@@ -16,7 +16,7 @@ import { getRedisConnection } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { AppError } from '@/lib/errors'
 
-export type JobType = 'anchor_and_mint' | 'retirement_report' | 'erc1888_issuance'
+export type JobType = 'anchor_and_mint' | 'notification_delivery'
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
 
 const QUEUE_NAME = 'stellar-transactions'
@@ -212,7 +212,7 @@ async function processJob(job: Job): Promise<void> {
   await db.from('jobs').update({ status: 'running', attempts: job.attemptsMade + 1 }).eq('id', dbJobId)
 
   try {
-    const result = await runAnchorAndMint(payload as unknown as AnchorAndMintPayload)
+    const result = await runJob(job.name as JobType, payload)
     await db.from('jobs').update({ status: 'done', result: result as import('@/lib/database.types').Json }).eq('id', dbJobId)
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
@@ -227,74 +227,29 @@ async function processJob(job: Job): Promise<void> {
   }
 }
 
-// ── Retirement report handler ────────────────────────────────────────────────
+// ── Job routing ──────────────────────────────────────────────────────────────
 
-/**
- * Generate the previous month's retirement report for every cooperative and
- * email it to each cooperative admin.
- */
-async function processRetirementReportJob(_job: Job): Promise<void> {
-  const db = createServiceClient()
-  const { buildRetirementReport } = await import('@/lib/retirement-report')
-  const { sendRetirementReportEmail } = await import('@/lib/email')
-
-  const now = new Date()
-  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
-  const month = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`
-
-  const { data: coops, error } = await db
-    .from('cooperatives')
-    .select('id, name, admin_email')
-  if (error) throw new Error(`Failed to load cooperatives: ${error.message}`)
-
-  for (const coop of coops ?? []) {
-    const adminEmail = (coop as { admin_email?: string | null }).admin_email
-    if (!adminEmail) continue
-    try {
-      const report = await buildRetirementReport(coop.id, month)
-      await sendRetirementReportEmail({
-        to: adminEmail,
-        cooperativeName: (coop as { name?: string }).name ?? coop.id,
-        month,
-        report,
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error('job.retirement_report.failed', { cooperative_id: coop.id, month, error: message })
-      throw err // let BullMQ retry / dead-letter
-    }
+async function runJob(type: JobType, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  switch (type) {
+    case 'anchor_and_mint':
+      return runAnchorAndMint(payload as unknown as AnchorAndMintPayload)
+    case 'notification_delivery':
+      return runNotificationDelivery(payload as unknown as NotificationDeliveryPayload)
+    default:
+      throw new AppError(`Unknown job type: ${String(type)}`, 'INTERNAL')
   }
 }
 
-// ── ERC-1888 bridge issuance handler ─────────────────────────────────────────
+// ── Notification delivery handler ────────────────────────────────────────────
 
-/**
- * Issue an ERC-1888 EAC token on Energy Web Chain for a certificate and store
- * the resulting token ID back on the certificate record.
- */
-async function processErc1888IssuanceJob(job: Job): Promise<void> {
-  const db = createServiceClient()
-  const { certificateId } = job.data as { certificateId: string }
+interface NotificationDeliveryPayload {
+  deliveryId: string
+}
 
-  try {
-    const { issueErc1888Token } = await import('@/lib/energyweb')
-    const { tokenId } = await issueErc1888Token(certificateId)
-    await db
-      .from('certificates')
-      .update({ erc1888_token_id: tokenId, erc1888_issuance_status: 'issued' })
-      .eq('id', certificateId)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const isFinal = job.attemptsMade + 1 >= (job.opts.attempts ?? 3)
-    logger.error('job.erc1888.failed', { certificate_id: certificateId, error: message, final: isFinal })
-    if (isFinal) {
-      await db
-        .from('certificates')
-        .update({ erc1888_issuance_status: 'failed' })
-        .eq('id', certificateId)
-    }
-    throw err
-  }
+async function runNotificationDelivery(payload: NotificationDeliveryPayload): Promise<Record<string, unknown>> {
+  const { processDelivery } = await import('@/lib/notifications')
+  const result = await processDelivery(payload.deliveryId)
+  return { delivery_id: payload.deliveryId, status: result.status }
 }
 
 // ── Anchor-and-mint handler ──────────────────────────────────────────────────
@@ -349,6 +304,28 @@ async function runAnchorAndMint(payload: AnchorAndMintPayload): Promise<Record<s
     const message = err instanceof Error ? err.message : String(err)
     const category = err instanceof AppError ? err.category : 'INTERNAL'
     log.error('job.mint.failed', { reading_id: readingId, category, error: message })
+
+    // Dispatch certificate-failed notifications (best-effort; never mask the error)
+    try {
+      const { data: failedReading } = await db
+        .from('readings')
+        .select('meters(cooperative_id)')
+        .eq('id', readingId)
+        .maybeSingle()
+      const failedCoopId = (failedReading?.meters as { cooperative_id: string } | null)?.cooperative_id
+      if (failedCoopId) {
+        const { emitCertificateEvent } = await import('@/lib/notifications')
+        await emitCertificateEvent(failedCoopId, 'failed', {
+          reading_id: readingId,
+          error: message,
+          category,
+        })
+      }
+    } catch (notifyErr) {
+      const notifyMsg = notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+      log.error('job.notify.failed.failed', { reading_id: readingId, error: notifyMsg })
+    }
+
     throw err
   }
 
@@ -381,9 +358,18 @@ async function runAnchorAndMint(payload: AnchorAndMintPayload): Promise<Record<s
     await fireWebhook(cooperativeId, 'anchor', { reading_id: readingId, anchor_tx_hash: anchorTxHash })
     await fireWebhook(cooperativeId, 'mint', { reading_id: readingId, mint_tx_hash: mintTxHash, kwh })
 
-    // Trigger Energy Web Chain ERC-1888 issuance without blocking the mint flow.
-    if (cert?.id) {
-      await enqueueErc1888Issuance(cert.id)
+    // Dispatch certificate-issued notifications (best-effort; never fail the job)
+    try {
+      const { emitCertificateEvent } = await import('@/lib/notifications')
+      await emitCertificateEvent(cooperativeId, 'issued', {
+        reading_id: readingId,
+        anchor_tx_hash: anchorTxHash,
+        mint_tx_hash: mintTxHash,
+        kwh,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('job.notify.issued.failed', { reading_id: readingId, error: message })
     }
   }
 

@@ -7,6 +7,7 @@ import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
 import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
+import { isApiKeyExpired } from '@/lib/meter-api-keys'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -62,13 +63,13 @@ export async function POST(req: NextRequest) {
   const db = createServiceClient()
   const readings = parsed.data
 
-type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null }
+type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; api_key_expires_at: string | null; cooperatives: { admin_address: string } | null }
 
   // Fetch all unique meters in one query
   const meterIds = [...new Set(readings.map(r => r.meter_id))]
   const { data: meters } = await db
     .from('meters')
-    .select('id, pubkey_hex, cooperative_id, revoked_at, cooperatives(admin_address)')
+    .select('id, pubkey_hex, cooperative_id, revoked_at, api_key_expires_at, cooperatives(admin_address)')
     .in('id', meterIds)
     .eq('active', true)
     .is('revoked_at', null) as { data: (MeterRow & { revoked_at: string | null })[] | null }
@@ -81,6 +82,10 @@ type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; cooper
 
       const meter = meterMap.get(meter_id)
       if (!meter) return { index, status: 'error', error: 'Meter not found or inactive', code: 404 }
+
+      if (isApiKeyExpired(meter.api_key_expires_at)) {
+        return { index, status: 'error', error: 'Meter API key expired', code: 401 }
+      }
 
       const kwhStroops = kwhToStroops(kwh)
       const readingHash = computeReadingHash(meter_id, kwhStroops, BigInt(timestamp))

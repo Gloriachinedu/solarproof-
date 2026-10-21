@@ -86,6 +86,59 @@ error_rate.....................: 0.20%
 - **`p95 > 2 000 ms`** → the server is overloaded or a slow dependency (Supabase, Stellar RPC) is the bottleneck.
 - **Spike in p99 during stress** → expected; look for connection pool exhaustion or rate-limiter kicks.
 
+## Verify rate-limit test — `/api/verify`
+
+Covers Issue #119: abuse protection for the public verifier. The verify endpoint is
+rate limited to **30 requests/minute per IP** (configured in `middleware.ts`). This
+test sends bursts well above that limit from a single IP and asserts that the
+limiter actually kicks in.
+
+### What it checks
+
+- Requests beyond the 30 req/min budget return **429 Too Many Requests**.
+- 429 responses include a **`Retry-After`** header.
+- Requests within the budget are not rejected by the limiter.
+
+### Running locally
+
+```bash
+export BASE_URL=http://localhost:3000
+k6 run --env BASE_URL=$BASE_URL scripts/load-test-verify-ratelimit.mjs
+```
+
+The script fires a burst of requests from one VU (single IP) so the per-IP limiter
+is exercised deterministically. Because the limiter window is one minute, a full
+run takes a little over a minute.
+
+### Running in CI
+
+The `load-test` job in `.github/workflows/load-test.yml` runs this script against
+the staging environment:
+
+```yaml
+- name: Verify rate-limit test
+  run: k6 run --env BASE_URL=${{ vars.STAGING_URL }} scripts/load-test-verify-ratelimit.mjs
+```
+
+### Interpreting results
+
+```
+✓ 429 returned after limit exceeded
+✓ Retry-After header present on 429
+
+rate_limited_requests...........: 45
+allowed_requests................: 30
+```
+
+- **No 429s observed** → the limiter is not enforced (check `middleware.ts` config
+  and that the test is not being routed through a proxy that rewrites client IPs).
+- **429s returned but `Retry-After` missing** → the limiter response is incomplete;
+  clients cannot back off correctly.
+- **429s returned before 30 requests** → the limit is too strict or the window is
+  misconfigured; verify the 30 req/min setting.
+- **429s on the very first request** → a previous test run may still hold the
+  window; wait one minute and re-run.
+
 ## CI integration
 
 Add to `.github/workflows/ci.yml` when a staging environment is available:

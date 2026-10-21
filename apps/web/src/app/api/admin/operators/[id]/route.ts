@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { requireAdmin } from '@/lib/admin-auth'
+import { invalidateOperatorSuspensionCache } from '@/lib/operator-suspension'
 
 const PatchSchema = z.object({ suspended: z.boolean() })
 const ParamsSchema = z.object({ id: z.string().uuid() })
@@ -9,6 +10,9 @@ const ParamsSchema = z.object({ id: z.string().uuid() })
 /**
  * PATCH /api/admin/operators/[id]
  * Suspend or unsuspend an operator (cooperative).
+ *
+ * Invalidates the Redis suspension cache for the operator so that
+ * POST /api/readings reflects the change within seconds (issue #31).
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const err = requireAdmin(req)
@@ -36,5 +40,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Invalidate cached suspension state so readings ingestion sees the change promptly
+  void invalidateOperatorSuspensionCache(id)
+
   return NextResponse.json({ data })
 }

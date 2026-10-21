@@ -4,11 +4,6 @@ import { createAnonClient } from '@/lib/supabase'
 import { getCachedCert, setCachedCert } from '@/lib/cache'
 import { stellarExplorerUrl, type NetworkName } from '@solarproof/stellar'
 import { env } from '@/env'
-import { checkRateLimit as checkIpRateLimit, getClientIp } from '@/lib/rate-limit'
-
-// IP rate limit: 30 GETs per 60 s per IP
-const IP_RATE_LIMIT = 30
-const IP_RATE_WINDOW_MS = 60_000
 
 // UUID or 64-char hex hash (reading_hash / tx_hash)
 const VerifyQuerySchema = z.object({
@@ -23,25 +18,6 @@ const VerifyQuerySchema = z.object({
  * Results are cached in Redis for 60 s (TTL defined in cache.ts).
  */
 export async function GET(req: NextRequest) {
-  // IP-based rate limit: 30 requests / 60 s per IP
-  const ip = getClientIp(req)
-  const ipRl = checkIpRateLimit(`ip:verify:${ip}`, IP_RATE_LIMIT, IP_RATE_WINDOW_MS)
-  if (!ipRl.allowed) {
-    const retryAfter = Math.ceil((ipRl.resetAt - Date.now()) / 1000)
-    return NextResponse.json(
-      { error: 'Too many requests. Please try again later.', retryAfter },
-      {
-        status: 429,
-        headers: {
-          'Retry-After': String(retryAfter),
-          'X-RateLimit-Limit': String(IP_RATE_LIMIT),
-          'X-RateLimit-Remaining': String(ipRl.remaining),
-          'X-RateLimit-Reset': String(Math.ceil(ipRl.resetAt / 1000)),
-        },
-      }
-    )
-  }
-
   const queryParams = Object.fromEntries(req.nextUrl.searchParams.entries())
   const parsed = VerifyQuerySchema.safeParse(queryParams)
   if (!parsed.success) {

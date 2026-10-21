@@ -151,7 +151,52 @@ Integrations that need real-time data should check `X-Cache: MISS` or wait for t
 
 ## Rate limits
 
-The verification endpoints are public and unmetered. However, abusive traffic may be blocked at the CDN level. For bulk verification of large certificate portfolios, contact the SolarProof team to arrange a dedicated integration.
+The verification endpoints are public and require no account or API key, but they are rate limited to protect the service against scraping and abuse.
+
+| Limit | Scope | Window |
+|---|---|---|
+| **30 requests** | Per client IP address | 1 minute (sliding) |
+
+The limit is enforced in `middleware.ts` before the request reaches the verify handler. Both `GET /api/verify` and `GET /api/verify/{id}` share the same per-IP budget.
+
+### Rate-limit headers
+
+Every response from the verify endpoints includes:
+
+| Header | Value | Description |
+|---|---|---|
+| `X-RateLimit-Limit` | `30` | Maximum requests allowed per window |
+| `X-RateLimit-Remaining` | integer | Requests left in the current window |
+| `X-RateLimit-Reset` | Unix timestamp (seconds) | When the current window resets |
+| `Retry-After` | integer (seconds) | Present on `429` responses only |
+
+### 429 Too Many Requests
+
+When the limit is exceeded, the API responds with `429` and does not touch the certificate store:
+
+```json
+{
+  "error": "Too many requests. Please retry after 42 seconds."
+}
+```
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 42
+X-RateLimit-Limit: 30
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1745366460
+```
+
+Clients should back off until `Retry-After` elapses (or `X-RateLimit-Reset` is reached) and retry with jitter. Repeated violations may result in longer blocks at the CDN level.
+
+### Bot challenges (optional)
+
+High-volume or automated deployments can enable a lightweight bot challenge — **Cloudflare Turnstile** or **hCaptcha** — in front of the verify endpoints. When enabled, requests must include a valid challenge token (for example the `cf-turnstile-response` header) in addition to the identifier; requests without a valid token receive `403 Forbidden`.
+
+The challenge is disabled by default for the public verifier so that simple `curl` and scripted integrations keep working. If you operate a high-volume integration, contact the SolarProof team to arrange a dedicated allowance or a challenge-exempt token.
+
+See [`docs/ABUSE_PROTECTION.md`](./ABUSE_PROTECTION.md) for the full threat model and mitigation details.
 
 ---
 

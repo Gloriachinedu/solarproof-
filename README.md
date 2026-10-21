@@ -245,3 +245,8 @@ Apache-2.0 — See [LICENSE](LICENSE).
 ---
 
 *Built on Stellar · SolarProof Contributors 2026*
+
+## Handsoff notes
+
+<!-- handsoff-issue-129 -->
+- #129: [Product] Meter health monitoring — alert on readings gap

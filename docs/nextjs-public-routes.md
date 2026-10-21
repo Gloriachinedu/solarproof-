@@ -24,6 +24,17 @@ Note: adjust the paths below if the app mounts routes differently in deployment.
 - `GET /api/metadata/:meterId` — Get meter metadata
   - Response: 200 with JSON metadata or 404 if not found
 
+- `GET /api/verify` — Public verifier (list/entry point)
+  - Response: 200 with JSON verification data
+  - Rate limit: 30 requests/minute per IP, enforced in `middleware.ts`
+  - On limit exceeded: 429 Too Many Requests with a `Retry-After` header
+
+- `GET /api/verify/{id}` — Public verifier for a specific record
+  - Response: 200 with JSON verification data or 404 if not found
+  - Rate limit: 30 requests/minute per IP, enforced in `middleware.ts`
+  - On limit exceeded: 429 Too Many Requests with a `Retry-After` header
+  - Abuse protection: see `ABUSE_PROTECTION.md` (optional PoW/bot challenge for high-volume use)
+
 ## Error formats
 
 - Standard error response shape used by public routes:
