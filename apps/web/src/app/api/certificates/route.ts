@@ -7,6 +7,8 @@ const MAX_PAGE_SIZE = 100
 const QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(20),
   cursor: z.string().optional(),
+  // Backward-compatible offset pagination (deprecated — prefer cursor)
+  page: z.coerce.number().int().min(1).optional(),
   q: z.string().trim().default(''),
   status: z.enum(['active', 'retired']).nullable().optional(),
   date_from: z.string().optional(),
@@ -16,14 +18,25 @@ const QuerySchema = z.object({
 /**
  * GET /api/v1/certificates
  *
- * Cursor-based pagination via `cursor` (ISO timestamp of `issued_at`) and
- * `limit` (max 100). Returns `{ data, next_cursor, total }`.
+ * Cursor-based pagination via `cursor` (opaque ISO timestamp of `issued_at`)
+ * and `limit` (max 100). Returns `{ data, next_cursor, has_more, total }`.
+ *
+ * Backward-compatible: `page` + `limit` offset pagination is still accepted
+ * but `cursor` takes precedence when both are present.
  *
  * Filter params:
  *   q          — prefix search on certificate id or meter_id (via readings join)
  *   status     — "active" | "retired"
  *   date_from  — ISO date string (inclusive lower bound on issued_at)
  *   date_to    — ISO date string (inclusive upper bound on issued_at)
+ *
+ * Cursor design:
+ *   - The cursor encodes the `issued_at` timestamp of the last-seen row.
+ *   - The DB query uses `.lt('issued_at', cursor)` which hits the indexed
+ *     column directly — no sequential scan or OFFSET needed.
+ *   - `next_cursor` in the response is the `issued_at` of the last row
+ *     returned; pass it as `cursor` in the next request.
+ *   - When `has_more` is false, `next_cursor` is null.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -34,7 +47,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: parsedQuery.error.flatten() }, { status: 400 })
   }
 
-  const { limit, cursor, q, status, date_from: dateFrom, date_to: dateTo } = parsedQuery.data
+  const { limit, cursor, page, q, status, date_from: dateFrom, date_to: dateTo } = parsedQuery.data
 
   const db = createServiceClient()
 
@@ -46,9 +59,16 @@ export async function GET(req: NextRequest) {
       { count: 'exact' }
     )
     .order('issued_at', { ascending: false })
-    .limit(limit + 1)
+    .limit(limit + 1) // fetch one extra to detect whether there is a next page
 
-  if (cursor) query = query.lt('issued_at', cursor)
+  // Cursor-based pagination (preferred): filter by indexed issued_at column
+  if (cursor) {
+    query = query.lt('issued_at', cursor)
+  } else if (page && page > 1) {
+    // Fallback: offset pagination for backward compat (deprecated)
+    query = query.range((page - 1) * limit, page * limit)
+  }
+
   if (status === 'active') query = query.eq('retired', false)
   if (status === 'retired') query = query.eq('retired', true)
   if (dateFrom) query = query.gte('issued_at', dateFrom)
@@ -74,14 +94,19 @@ export async function GET(req: NextRequest) {
   }>
 
   const hasMore = rows.length > limit
-  const page = hasMore ? rows.slice(0, limit) : rows
-  const next_cursor = hasMore ? page[page.length - 1].issued_at : null
+  const page_data = hasMore ? rows.slice(0, limit) : rows
+  const next_cursor = hasMore ? page_data[page_data.length - 1].issued_at : null
 
   // Flatten the joined meter_id onto each row
-  const normalized = page.map(({ readings, ...cert }) => ({
+  const normalized = page_data.map(({ readings, ...cert }) => ({
     ...cert,
     meter_id: Array.isArray(readings) ? readings[0]?.meter_id : readings?.meter_id ?? null,
   }))
 
-  return NextResponse.json({ data: normalized, next_cursor, total: count ?? 0 })
+  return NextResponse.json({
+    data: normalized,
+    next_cursor,
+    has_more: hasMore,
+    total: count ?? 0,
+  })
 }
