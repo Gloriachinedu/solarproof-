@@ -239,3 +239,31 @@ export async function sendLockoutEmail(to: string): Promise<void> {
   `)
   await sendEmail({ to, subject: 'SolarProof: account temporarily locked', html })
 }
+
+/**
+ * Send a meter API key expiry warning email.
+ *
+ * Called by the expiry notification job 7 days before a meter API key expires
+ * (issue #117). The email warns the operator and links them to the key
+ * rotation flow so readings keep flowing without interruption.
+ */
+export async function sendApiKeyExpiryEmail(
+  to: string,
+  meterId: string,
+  expiresAt: Date,
+): Promise<void> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://solarproof.app'
+  const rotateUrl = `${appUrl}/meters/${meterId}`
+  const expiryDate = expiresAt.toISOString().slice(0, 10)
+  const html = baseTemplate('Meter API key expiring soon ⏳', `
+    <p>The API key for one of your meters will <strong>expire in 7 days</strong>.</p>
+    <table style="border-collapse:collapse;width:100%">
+      <tr><td style="padding:8px;font-weight:bold">Meter ID</td><td style="padding:8px;font-family:monospace;font-size:12px">${meterId}</td></tr>
+      <tr><td style="padding:8px;font-weight:bold">Expires on</td><td style="padding:8px">${expiryDate}</td></tr>
+    </table>
+    <p>Once the key expires, reading submissions from this meter will be rejected.</p>
+    <p>To avoid interruption, <a href="${rotateUrl}">rotate the API key</a> before the expiry date
+      and update your meter's configuration with the new key.</p>
+  `)
+  await sendEmail({ to, subject: 'SolarProof: meter API key expires in 7 days', html })
+}
