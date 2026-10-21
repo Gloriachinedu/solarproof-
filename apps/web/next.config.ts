@@ -14,6 +14,8 @@ const securityHeaders = [
     value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   },
   {
+    // Enforce mode (not Report-Only) in all environments.
+    // Violations are POSTed to /api/csp-report which forwards them to Sentry.
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
@@ -23,6 +25,7 @@ const securityHeaders = [
       "font-src 'self'",
       "connect-src 'self' https://*.supabase.co https://soroban-testnet.stellar.org https://soroban.stellar.org wss://*.supabase.co",
       "frame-ancestors 'none'",
+      "report-uri /api/csp-report",
     ].join('; '),
   },
 ]
