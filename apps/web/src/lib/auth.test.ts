@@ -14,16 +14,51 @@ vi.mock('@/env', () => ({
   },
 }))
 
+vi.mock('@/lib/cache', () => ({
+  getCachedRevocation: vi.fn(),
+  setCachedRevocation: vi.fn(),
+}))
+
+vi.mock('@/lib/audit', () => ({
+  auditLog: vi.fn(),
+}))
+
 import { createClient } from '@supabase/supabase-js'
-import { requireAuth, isAuthError } from '@/lib/auth'
+import { requireAuth, isAuthError, revokeToken } from '@/lib/auth'
+import { getCachedRevocation, setCachedRevocation } from '@/lib/cache'
+import { auditLog } from '@/lib/audit'
 
 const mockGetUser = vi.fn()
 const mockCreateClient = vi.mocked(createClient)
+const mockGetCachedRevocation = vi.mocked(getCachedRevocation)
+const mockSetCachedRevocation = vi.mocked(setCachedRevocation)
+const mockAuditLog = vi.mocked(auditLog)
+
+const mockRevokedMaybeSingle = vi.fn()
+const mockRevokedInsert = vi.fn()
+const mockFrom = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockGetCachedRevocation.mockResolvedValue(null)
+  mockSetCachedRevocation.mockResolvedValue(undefined)
+  mockAuditLog.mockResolvedValue(undefined)
+  mockRevokedMaybeSingle.mockResolvedValue({ data: null, error: null })
+  mockRevokedInsert.mockResolvedValue({ error: null })
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'revoked_tokens') {
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: mockRevokedMaybeSingle }),
+        }),
+        insert: mockRevokedInsert,
+      }
+    }
+    return {}
+  })
   mockCreateClient.mockReturnValue({
     auth: { getUser: mockGetUser },
+    from: mockFrom,
   } as never)
 })
 
@@ -61,5 +96,64 @@ describe('requireAuth', () => {
     const auth = result as { user: { id: string; email?: string }; accessToken: string }
     expect(auth.user.id).toBe('user-1')
     expect(auth.accessToken).toBe('valid-token')
+  })
+})
+
+describe('requireAuth revocation', () => {
+  it('returns 401 when token JTI is in revoked_tokens and logs audit', async () => {
+    mockGetCachedRevocation.mockResolvedValue(null)
+    mockRevokedMaybeSingle.mockResolvedValue({ data: { jti: 'jti-1' }, error: null })
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: 'op@example.com' } },
+      error: null,
+    })
+
+    const result = await requireAuth(makeRequest('Bearer revoked-token'))
+    expect(isAuthError(result)).toBe(true)
+    const res = result as Response
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toMatch(/Token has been revoked/)
+    expect(mockAuditLog).toHaveBeenCalledTimes(1)
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('short-circuits DB query when revocation is cached', async () => {
+    mockGetCachedRevocation.mockResolvedValue(true)
+
+    const result = await requireAuth(makeRequest('Bearer revoked-token'))
+    expect(isAuthError(result)).toBe(true)
+    const res = result as Response
+    expect(res.status).toBe(401)
+    expect(mockFrom).not.toHaveBeenCalled()
+    expect(mockAuditLog).toHaveBeenCalledTimes(1)
+  })
+
+  it('proceeds to getUser when token is not revoked', async () => {
+    mockGetCachedRevocation.mockResolvedValue(null)
+    mockRevokedMaybeSingle.mockResolvedValue({ data: null, error: null })
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: 'op@example.com' } },
+      error: null,
+    })
+
+    const result = await requireAuth(makeRequest('Bearer valid-token'))
+    expect(isAuthError(result)).toBe(false)
+    const auth = result as { user: { id: string } }
+    expect(auth.user.id).toBe('user-1')
+    expect(mockGetUser).toHaveBeenCalledTimes(1)
+    expect(mockSetCachedRevocation).toHaveBeenCalled()
+  })
+})
+
+describe('revokeToken', () => {
+  it('inserts into revoked_tokens and primes the cache', async () => {
+    await revokeToken('jti-1', 'user-1')
+
+    expect(mockFrom).toHaveBeenCalledWith('revoked_tokens')
+    expect(mockRevokedInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ jti: 'jti-1' })
+    )
+    expect(mockSetCachedRevocation).toHaveBeenCalledWith('jti-1', true)
   })
 })
