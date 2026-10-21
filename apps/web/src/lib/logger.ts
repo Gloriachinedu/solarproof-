@@ -10,12 +10,24 @@
  *   const log = logger.withCorrelationId('req-abc-123')
  *   log.info('reading.anchored', { txHash })
  *
+ *   // Request-scoped structured logging (captures route/method/status/duration):
+ *   const log = createRequestLogger(req)
+ *   log.info('certificates.list', { count: 20 })
+ *   log.end(200)  // emits a request.complete entry with duration
+ *
+ *   // Redact PII before logging:
+ *   const safe = redact({ meter_id, signature_hex, kwh })
+ *   log.info('reading.received', safe)
+ *
  * Required env var (production):
  *   LOGTAIL_SOURCE_TOKEN — from Better Stack → Sources → your source
  *
  * Optional env var:
  *   LOG_LEVEL — one of debug|info|warn|error (default: info)
  */
+
+import * as Sentry from '@sentry/nextjs'
+import { NextRequest } from 'next/server'
 
 type Level = 'debug' | 'info' | 'warn' | 'error'
 
@@ -26,11 +38,42 @@ function configuredLevel(): Level {
   return (raw in LEVELS ? raw : 'info') as Level
 }
 
+/**
+ * Keys whose values are automatically replaced with "[REDACTED]".
+ * Matches any key containing these substrings (case-insensitive).
+ * See docs/SECURE_LOGGING.md for the full policy.
+ */
+const REDACT_PATTERN = /key|secret|token|password|sig|hex|private/i
+
+/**
+ * Recursively redact sensitive values from an object before logging.
+ * Any key matching REDACT_PATTERN has its value replaced with "[REDACTED]".
+ *
+ * @example
+ *   redact({ meter_id, signature_hex, kwh })
+ *   // → { meter_id, signature_hex: '[REDACTED]', kwh }
+ */
+export function redact(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (REDACT_PATTERN.test(k)) {
+      out[k] = '[REDACTED]'
+    } else if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      out[k] = redact(v as Record<string, unknown>)
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
 interface LogEntry {
   level: Level
   event: string
   timestamp: string
   correlationId?: string
+  route?: string
+  method?: string
   [key: string]: unknown
 }
 
@@ -50,7 +93,14 @@ async function ship(entry: LogEntry) {
   })
 }
 
-function log(level: Level, event: string, meta: Record<string, unknown> = {}, correlationId?: string) {
+function log(
+  level: Level,
+  event: string,
+  meta: Record<string, unknown> = {},
+  correlationId?: string,
+  route?: string,
+  method?: string,
+) {
   if (LEVELS[level] < LEVELS[configuredLevel()]) return
 
   const entry: LogEntry = {
@@ -58,12 +108,23 @@ function log(level: Level, event: string, meta: Record<string, unknown> = {}, co
     event,
     timestamp: new Date().toISOString(),
     ...(correlationId ? { correlationId } : {}),
+    ...(route ? { route } : {}),
+    ...(method ? { method } : {}),
     ...meta,
   }
   // Always write to stdout (captured by Vercel function logs too)
   console[level === 'debug' ? 'log' : level](JSON.stringify(entry))
   // Ship to Logtail asynchronously — do not await
   void ship(entry)
+  // Add Sentry breadcrumb for observability correlation
+  if (correlationId) {
+    Sentry.addBreadcrumb({
+      category: 'log',
+      message: event,
+      level: level === 'warn' ? 'warning' : level,
+      data: { correlationId, route, method, ...meta },
+    })
+  }
 }
 
 export interface Logger {
@@ -85,4 +146,74 @@ export const logger: Logger = {
     warn:  (event, meta) => log('warn',  event, meta, id),
     error: (event, meta) => log('error', event, meta, id),
   }),
+}
+
+// ── Request-scoped logger ─────────────────────────────────────────────────────
+
+/**
+ * PII field names that must not appear in logs per docs/SECURE_LOGGING.md.
+ * Values for these keys are always redacted regardless of REDACT_PATTERN.
+ */
+const PII_FIELDS = new Set(['meter_id', 'email', 'operator_email'])
+
+/**
+ * Redact known PII fields from a meta object.
+ * meter_id and operator email are redacted as per docs/SECURE_LOGGING.md.
+ */
+export function redactPii(meta: Record<string, unknown>): Record<string, unknown> {
+  const out = redact(meta) // structural redaction first
+  for (const field of PII_FIELDS) {
+    if (field in out) out[field] = '[REDACTED]'
+  }
+  return out
+}
+
+export interface RequestLogger extends Omit<Logger, 'withCorrelationId'> {
+  /** Emit a `request.complete` log entry with status code and elapsed duration. */
+  end: (status: number, meta?: Record<string, unknown>) => void
+}
+
+/**
+ * Create a request-scoped logger that automatically includes the correlation ID,
+ * HTTP method, and route path in every log entry.
+ *
+ * Reads (or generates) `X-Correlation-ID` from the incoming request headers.
+ * The correlation ID is also set on the active Sentry scope for distributed tracing.
+ *
+ * @example
+ *   export async function POST(req: NextRequest) {
+ *     const log = createRequestLogger(req)
+ *     log.info('certificates.retire.start', { id })
+ *     // ... process ...
+ *     log.end(200)
+ *   }
+ */
+export function createRequestLogger(req: NextRequest): RequestLogger {
+  const correlationId = req.headers.get('x-correlation-id') ?? crypto.randomUUID()
+  const method = req.method.toUpperCase()
+  const route = req.nextUrl.pathname
+  const startMs = Date.now()
+
+  // Attach correlation ID to Sentry scope for this request
+  Sentry.getCurrentScope().setTag('correlationId', correlationId)
+  Sentry.getCurrentScope().setExtra('route', route)
+  Sentry.getCurrentScope().setExtra('method', method)
+
+  const scoped = {
+    debug: (event: string, meta?: Record<string, unknown>) =>
+      log('debug', event, meta ?? {}, correlationId, route, method),
+    info: (event: string, meta?: Record<string, unknown>) =>
+      log('info', event, meta ?? {}, correlationId, route, method),
+    warn: (event: string, meta?: Record<string, unknown>) =>
+      log('warn', event, meta ?? {}, correlationId, route, method),
+    error: (event: string, meta?: Record<string, unknown>) =>
+      log('error', event, meta ?? {}, correlationId, route, method),
+    end: (status: number, meta?: Record<string, unknown>) => {
+      const duration = Date.now() - startMs
+      const level: Level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info'
+      log(level, 'request.complete', { status, duration_ms: duration, ...(meta ?? {}) }, correlationId, route, method)
+    },
+  }
+
+  return scoped
 }
