@@ -9,6 +9,7 @@ export type AuditAction =
   | 'meter.register'
   | 'meter.deactivate'
   | 'meter.revoke'
+  | 'auth.revoked_token'
 
 interface AuditEntry {
   operator_id: string
