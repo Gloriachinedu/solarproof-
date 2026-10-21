@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 
 export type AuditAction =
   | 'reading.create'
+  | 'reading.suspension_blocked'
   | 'certificate.retire'
   | 'certificate.transfer'
   | 'meter.register'

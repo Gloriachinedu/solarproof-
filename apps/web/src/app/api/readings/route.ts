@@ -8,9 +8,11 @@ import { checkRateLimit } from '@/lib/cache'
 import { checkRateLimit as checkIpRateLimit, getClientIp } from '@/lib/rate-limit'
 import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
 import { logger } from '@/lib/logger'
-import { requireAuth, isAuthError } from '@/lib/auth'
+import { requireAuth, isAuthError, validateMeterApiKey } from '@/lib/auth'
 import { enqueue } from '@/lib/queue'
 import { AppError, ErrorCategory, errorBody } from '@/lib/errors'
+import { auditLog } from '@/lib/audit'
+import { isOperatorSuspended } from '@/lib/operator-suspension'
 
 const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
@@ -205,7 +207,7 @@ export async function POST(req: NextRequest) {
   // Fetch meter + cooperative
   const { data: meter } = await db
     .from('meters')
-    .select('id, pubkey_hex, cooperative_id, api_key')
+    .select('id, pubkey_hex, cooperative_id, api_key, api_key_expires_at')
     .eq('id', meter_id)
     .eq('active', true)
     .single()
@@ -218,13 +220,35 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Validate API key before Ed25519 signature check
+  // Validate API key (presence, match, and expiry) before Ed25519 signature check
   const apiKey = req.headers.get('x-api-key')
-  if (!apiKey || apiKey !== meter.api_key) {
-    log.warn('readings.post.invalid_api_key', { meter_id })
+  const apiKeyCheck = validateMeterApiKey(apiKey, meter)
+  if (!apiKeyCheck.ok) {
+    log.warn('readings.post.invalid_api_key', { meter_id, reason: apiKeyCheck.reason })
     return NextResponse.json(
-      { error: 'Invalid or missing API key', code: ErrorCategory.UNAUTHORIZED },
+      { error: apiKeyCheck.message, code: ErrorCategory.UNAUTHORIZED },
       { status: 401 }
+    )
+  }
+
+  // Operator suspension check (cached in Redis for 5 minutes)
+  const suspended = await isOperatorSuspended(meter.cooperative_id)
+  if (suspended) {
+    log.warn('readings.post.operator_suspended', { meter_id, cooperative_id: meter.cooperative_id })
+    // Audit log the blocked submission (non-fatal — must not block the 403 response)
+    void auditLog(req, {
+      operator_id: meter.cooperative_id,
+      action: 'reading.suspension_blocked',
+      resource_id: meter_id,
+      metadata: { meter_id, reason: 'operator_suspended', cooperative_id: meter.cooperative_id },
+    })
+    return NextResponse.json(
+      {
+        error: 'Operator is suspended and cannot submit readings',
+        reason: 'operator_suspended',
+        code: ErrorCategory.UNAUTHORIZED,
+      },
+      { status: 403 }
     )
   }
 

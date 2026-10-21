@@ -506,15 +506,31 @@ paths:
       description: |
         Supports filtering by status, date range, and text search.
         No authentication required.
+
+        Pagination: pass `cursor` (the `next_cursor` from the previous response)
+        to fetch the next page. The `page` parameter is supported for backward
+        compatibility but is deprecated — use `cursor` for new integrations.
       security: []
       parameters:
         - $ref: '#/components/parameters/limit'
         - name: cursor
           in: query
-          description: ISO timestamp of `issued_at` of the last seen row
+          description: |
+            Opaque cursor from `next_cursor` in a previous response.
+            Encodes the `issued_at` timestamp of the last-seen row.
+            Takes precedence over `page` when both are provided.
           schema:
             type: string
             format: date-time
+        - name: page
+          in: query
+          deprecated: true
+          description: |
+            **Deprecated** — use `cursor` instead.
+            1-based page number for backward-compatible offset pagination.
+          schema:
+            type: integer
+            minimum: 1
         - name: q
           in: query
           description: Prefix search on certificate ID or meter ID
@@ -1026,7 +1042,7 @@ components:
     # ── Certificates ──────────────────────────────────────────────────────────
     CertificateListResponse:
       type: object
-      required: [data, total]
+      required: [data, next_cursor, has_more, total]
       properties:
         data:
           type: array
@@ -1035,6 +1051,12 @@ components:
         next_cursor:
           type: ['string', 'null']
           format: date-time
+          description: |
+            Opaque cursor encoding the `issued_at` of the last returned row.
+            Pass as `cursor` in the next request. Null when `has_more` is false.
+        has_more:
+          type: boolean
+          description: Whether additional pages exist after the current page.
         total:
           type: integer
 

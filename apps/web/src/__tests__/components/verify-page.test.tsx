@@ -7,9 +7,17 @@
  */
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import VerifyPage from '@/app/verify/page'
+
+const mockSearchParams = new URLSearchParams()
+const mockReplace = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => mockSearchParams,
+  useRouter: () => ({ replace: mockReplace, push: vi.fn(), back: vi.fn() }),
+}))
 
 vi.mock('lucide-react', () => ({
   Shield: (props: Record<string, unknown>) => <span data-icon="Shield" {...props} />,
@@ -52,6 +60,14 @@ const mockChainOfCustody = {
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  mockReplace.mockClear()
+  for (const key of Array.from(mockSearchParams.keys())) {
+    mockSearchParams.delete(key)
+  }
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('VerifyPage snapshots', () => {
@@ -103,5 +119,144 @@ describe('VerifyPage snapshots', () => {
 
     await waitFor(() => screen.getByRole('status'))
     expect(container).toMatchSnapshot()
+  })
+})
+
+describe('VerifyPage kiosk mode', () => {
+  beforeEach(() => {
+    mockSearchParams.set('kiosk', '1')
+  })
+
+  it('renders the kiosk layout when ?kiosk=1 is present', () => {
+    render(<VerifyPage />)
+    expect(screen.getByTestId('kiosk-container')).toBeTruthy()
+    expect(screen.getByRole('region', { name: /kiosk/i })).toBeTruthy()
+  })
+
+  it('does not render the kiosk layout without the kiosk param', () => {
+    mockSearchParams.delete('kiosk')
+    render(<VerifyPage />)
+    expect(screen.queryByTestId('kiosk-container')).toBeNull()
+  })
+
+  it('auto-resets to the home state after 60s of inactivity', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockChainOfCustody,
+    }))
+
+    render(<VerifyPage />)
+    const input = screen.getByRole('searchbox')
+    const button = screen.getByRole('button', { name: /verify certificate/i })
+
+    fireEvent.change(input, { target: { value: 'cert-abc-123' } })
+    await act(async () => { fireEvent.click(button) })
+
+    await waitFor(() => screen.getByRole('status'))
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
+    expect(mockReplace).toHaveBeenCalledWith('/verify?kiosk=1')
+  })
+
+  it('does not reset before 60s of inactivity', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockChainOfCustody,
+    }))
+
+    render(<VerifyPage />)
+    const input = screen.getByRole('searchbox')
+    const button = screen.getByRole('button', { name: /verify certificate/i })
+
+    fireEvent.change(input, { target: { value: 'cert-abc-123' } })
+    await act(async () => { fireEvent.click(button) })
+
+    await waitFor(() => screen.getByRole('status'))
+
+    await act(async () => {
+      vi.advanceTimersByTime(59_000)
+    })
+
+    expect(screen.getByRole('status')).toBeTruthy()
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  it('resets the inactivity timer on pointer interaction', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockChainOfCustody,
+    }))
+
+    render(<VerifyPage />)
+    const input = screen.getByRole('searchbox')
+    const button = screen.getByRole('button', { name: /verify certificate/i })
+
+    fireEvent.change(input, { target: { value: 'cert-abc-123' } })
+    await act(async () => { fireEvent.click(button) })
+
+    await waitFor(() => screen.getByRole('status'))
+
+    await act(async () => {
+      vi.advanceTimersByTime(50_000)
+    })
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('kiosk-container'))
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(50_000)
+    })
+
+    // 100s total elapsed, but timer was reset at 50s, so still active
+    expect(screen.getByRole('status')).toBeTruthy()
+    expect(mockReplace).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+    })
+
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+    expect(mockReplace).toHaveBeenCalledWith('/verify?kiosk=1')
+  })
+
+  it('resets the inactivity timer on keyboard interaction', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockChainOfCustody,
+    }))
+
+    render(<VerifyPage />)
+    const input = screen.getByRole('searchbox')
+    const button = screen.getByRole('button', { name: /verify certificate/i })
+
+    fireEvent.change(input, { target: { value: 'cert-abc-123' } })
+    await act(async () => { fireEvent.click(button) })
+
+    await waitFor(() => screen.getByRole('status'))
+
+    await act(async () => {
+      vi.advanceTimersByTime(50_000)
+    })
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId('kiosk-container'), { key: 'Tab' })
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(50_000)
+    })
+
+    expect(screen.getByRole('status')).toBeTruthy()
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 })

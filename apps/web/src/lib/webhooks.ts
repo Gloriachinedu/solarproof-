@@ -10,6 +10,8 @@ export type WebhookEvent =
   | 'certificate.minted'
   | 'certificate.transferred'
   | 'certificate.retired'
+  | 'certificate.verified'
+  | 'certificate.failed'
 
 export interface WebhookPayload {
   event: WebhookEvent

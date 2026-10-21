@@ -5,6 +5,7 @@ import { retireCertificate } from '@/lib/stellar'
 import { fireWebhook } from '@/lib/webhooks'
 import { triggerIRecRetirement } from '@/lib/irec-bridge'
 import { sendRetiredEmail } from '@/lib/email'
+import { emitCertificateEvent } from '@/lib/notifications'
 
 const RetireSchema = z.object({ wallet_address: z.string().trim().min(1) })
 const ParamsSchema = z.object({ id: z.string().uuid() })
@@ -73,6 +74,12 @@ export async function POST(
   if (updateErr || !updated) {
     return NextResponse.json({ error: 'Failed to update certificate status' }, { status: 500 })
   }
+
+  void emitCertificateEvent(updated.cooperative_id, updated.id, 'retired', {
+    retired_by: updated.retired_by ?? wallet_address,
+    retire_tx_hash: retireTxHash,
+    kwh: cert.kwh,
+  })
 
   void fireWebhook(updated.cooperative_id, 'retire', {
     certificate_id: updated.id,

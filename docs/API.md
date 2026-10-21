@@ -14,6 +14,63 @@ The `GET /api/verify` and `GET /api/health` endpoints are **public** and require
 
 ---
 
+## CSRF Protection
+
+All browser-facing state-mutating routes (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF token using the **double-submit cookie pattern**.
+
+### How to obtain a token
+
+```http
+GET /api/csrf
+```
+
+**Response**
+
+```json
+{ "csrf_token": "<nonce>.<hmac>.<timestamp>" }
+```
+
+The server also sets an `HttpOnly: false` cookie named `csrf_token` so the browser can read it.
+
+### How to use the token
+
+Include the token value in the `x-csrf-token` request header on every state-mutating request:
+
+```http
+POST /api/v1/certificates/retire
+Content-Type: application/json
+x-csrf-token: <token>
+Cookie: csrf_token=<token>
+
+{ "id": "cert-uuid" }
+```
+
+### Error response
+
+A missing, mismatched, or expired token returns **HTTP 403**:
+
+```json
+{ "error": "CSRF token missing" }
+```
+
+Possible `error` values:
+- `"CSRF token missing"` — header or cookie absent
+- `"CSRF token mismatch"` — header value differs from cookie
+- `"CSRF token invalid or expired"` — HMAC validation failed or token older than 1 hour
+
+### Exempt routes
+
+The following routes are **exempt** from CSRF validation (they use independent authentication mechanisms):
+
+| Route | Reason |
+|---|---|
+| `POST /api/readings` | Ed25519 meter signature + API key |
+| `POST /api/v1/readings` | Ed25519 meter signature + API key |
+| `POST /api/webhooks/**` | HMAC webhook secret |
+| `GET /api/csrf` | Token issuance endpoint itself |
+
+---
+
 ## Endpoints
 
 ### POST /api/readings
