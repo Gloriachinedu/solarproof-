@@ -4,11 +4,11 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
-import { checkRateLimit } from '@/lib/cache'
+import { checkRateLimit, getCachedMeterRevocation, setCachedMeterRevocation } from '@/lib/cache'
 import { checkRateLimit as checkIpRateLimit, getClientIp } from '@/lib/rate-limit'
 import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
 import { logger } from '@/lib/logger'
-import { requireAuth, isAuthError, validateMeterApiKey } from '@/lib/auth'
+import { requireAuth, isAuthError } from '@/lib/auth'
 import { enqueue } from '@/lib/queue'
 import { AppError, ErrorCategory, errorBody } from '@/lib/errors'
 import { auditLog } from '@/lib/audit'
@@ -148,16 +148,6 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Idempotency-Key header check
-  const idempotencyKey = req.headers.get('idempotency-key')
-  if (idempotencyKey) {
-    const cached = await getIdempotentResponse(idempotencyKey)
-    if (cached) {
-      log.info('readings.post.idempotent_hit', { idempotencyKey })
-      return NextResponse.json(cached.body, { status: cached.status })
-    }
-  }
-
   const body = await req.json().catch(() => null)
   if (body === null) {
     return NextResponse.json(
@@ -178,6 +168,13 @@ export async function POST(req: NextRequest) {
 
   const db = createServiceClient()
 
+  if (await getCachedMeterRevocation(meter_id)) {
+    return NextResponse.json(
+      { error: 'Meter has been revoked', code: ErrorCategory.UNAUTHORIZED },
+      { status: 403 }
+    )
+  }
+
   // Timestamp check: reject if >5 minutes old
   const ageMs = Date.now() - (timestamp * 1000)
   if (ageMs > 5 * 60 * 1000 || ageMs < -60 * 1000) {
@@ -188,7 +185,42 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Idempotency check: return cached response if nonce was seen within 24 h
+  // Fetch meter + cooperative
+  const { data: meter } = await db
+    .from('meters')
+    .select('id, pubkey_hex, cooperative_id, api_key, api_key_expires_at, active, revoked_at')
+    .eq('id', meter_id)
+    .single()
+
+  if (meter?.revoked_at) {
+    await setCachedMeterRevocation(meter_id, true)
+    log.warn('readings.post.meter_revoked', { meter_id })
+    return NextResponse.json(
+      { error: 'Meter has been revoked', code: ErrorCategory.UNAUTHORIZED },
+      { status: 403 }
+    )
+  }
+
+  if (!meter || !meter.active) {
+    log.warn('readings.post.meter_not_found_or_revoked', { meter_id })
+    return NextResponse.json(
+      { error: 'Meter not found or inactive', code: ErrorCategory.VALIDATION },
+      { status: 404 }
+    )
+  }
+
+  await setCachedMeterRevocation(meter_id, false)
+
+  // Return cached responses only after confirming the meter is not revoked.
+  const idempotencyKey = req.headers.get('idempotency-key')
+  if (idempotencyKey) {
+    const cached = await getIdempotentResponse(idempotencyKey)
+    if (cached) {
+      log.info('readings.post.idempotent_hit', { idempotencyKey })
+      return NextResponse.json(cached.body, { status: cached.status })
+    }
+  }
+
   const { data: existingNonce } = await db
     .from('idempotency_keys')
     .select('response, created_at')
@@ -200,33 +232,19 @@ export async function POST(req: NextRequest) {
     if (age < NONCE_TTL_MS) {
       return NextResponse.json(existingNonce.response, { status: 200 })
     }
-    // Expired — delete and allow re-processing
     await db.from('idempotency_keys').delete().eq('nonce', nonce)
-  }
-
-  // Fetch meter + cooperative
-  const { data: meter } = await db
-    .from('meters')
-    .select('id, pubkey_hex, cooperative_id, api_key, api_key_expires_at')
-    .eq('id', meter_id)
-    .eq('active', true)
-    .single()
-
-  if (!meter) {
-    log.warn('readings.post.meter_not_found_or_revoked', { meter_id })
-    return NextResponse.json(
-      { error: 'Meter not found, inactive, or revoked', code: ErrorCategory.VALIDATION },
-      { status: 404 }
-    )
   }
 
   // Validate API key (presence, match, and expiry) before Ed25519 signature check
   const apiKey = req.headers.get('x-api-key')
-  const apiKeyCheck = validateMeterApiKey(apiKey, meter)
-  if (!apiKeyCheck.ok) {
-    log.warn('readings.post.invalid_api_key', { meter_id, reason: apiKeyCheck.reason })
+  if (
+    !apiKey ||
+    apiKey !== meter.api_key ||
+    (meter.api_key_expires_at && new Date(meter.api_key_expires_at).getTime() <= Date.now())
+  ) {
+    log.warn('readings.post.invalid_api_key', { meter_id })
     return NextResponse.json(
-      { error: apiKeyCheck.message, code: ErrorCategory.UNAUTHORIZED },
+      { error: 'Invalid or missing API key', code: ErrorCategory.UNAUTHORIZED },
       { status: 401 }
     )
   }

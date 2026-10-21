@@ -137,6 +137,39 @@ export async function setCachedRevocation(jti: string, revoked: boolean): Promis
   await redisSet(revocationCacheKey(jti), revoked, REVOCATION_TTL)
 }
 
+const METER_REVOCATION_TTL = 300 // seconds
+
+export function meterRevocationCacheKey(meterId: string) {
+  return `revoked:meter:${meterId}`
+}
+
+export async function getCachedMeterRevocation(meterId: string): Promise<boolean | null> {
+  if (!UPSTASH_REDIS_REST_URL) return null
+  try {
+    return await redisGet<boolean>(meterRevocationCacheKey(meterId))
+  } catch {
+    return null
+  }
+}
+
+export async function setCachedMeterRevocation(meterId: string, revoked: boolean): Promise<void> {
+  if (!UPSTASH_REDIS_REST_URL) return
+  try {
+    await redisSet(meterRevocationCacheKey(meterId), revoked, METER_REVOCATION_TTL)
+  } catch {
+    // The database remains authoritative when Redis is unavailable.
+  }
+}
+
+export async function invalidateMeterRevocation(meterId: string): Promise<void> {
+  if (!UPSTASH_REDIS_REST_URL) return
+  try {
+    await redisDel(meterRevocationCacheKey(meterId))
+  } catch {
+    // A short TTL bounds stale revocation state if invalidation is unavailable.
+  }
+}
+
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
 const RATE_LIMIT_WINDOW = 60 // seconds
