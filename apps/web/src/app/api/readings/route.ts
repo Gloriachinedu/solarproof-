@@ -11,6 +11,8 @@ import { logger } from '@/lib/logger'
 import { requireAuth, isAuthError } from '@/lib/auth'
 import { enqueue } from '@/lib/queue'
 import { AppError, ErrorCategory, errorBody } from '@/lib/errors'
+import { auditLog } from '@/lib/audit'
+import { isOperatorSuspended } from '@/lib/operator-suspension'
 
 const NONCE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
@@ -225,6 +227,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: 'Invalid or missing API key', code: ErrorCategory.UNAUTHORIZED },
       { status: 401 }
+    )
+  }
+
+  // Operator suspension check (cached in Redis for 5 minutes)
+  const suspended = await isOperatorSuspended(meter.cooperative_id)
+  if (suspended) {
+    log.warn('readings.post.operator_suspended', { meter_id, cooperative_id: meter.cooperative_id })
+    // Audit log the blocked submission (non-fatal — must not block the 403 response)
+    void auditLog(req, {
+      operator_id: meter.cooperative_id,
+      action: 'reading.suspension_blocked',
+      resource_id: meter_id,
+      metadata: { meter_id, reason: 'operator_suspended', cooperative_id: meter.cooperative_id },
+    })
+    return NextResponse.json(
+      {
+        error: 'Operator is suspended and cannot submit readings',
+        reason: 'operator_suspended',
+        code: ErrorCategory.UNAUTHORIZED,
+      },
+      { status: 403 }
     )
   }
 
