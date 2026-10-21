@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders } from '@/lib/cors'
+import { checkVerifyRateLimit, getClientIp } from '@/lib/rate-limit'
 
 export const SUPPORTED_LOCALES = ['en', 'es', 'fr', 'de', 'pt', 'ar'] as const
 export type Locale = typeof SUPPORTED_LOCALES[number]
@@ -65,6 +66,56 @@ export function middleware(req: NextRequest) {
       }
     }
     return redirect
+  }
+
+  // ── Verify endpoint abuse protection ──────────────────────────────────────
+  // Rate limit all public verifier paths: /api/verify, /api/verify/[id],
+  // /api/v1/verify and /api/v1/verify/[id].
+  const isVerifyPath = /^\/api\/(v1\/)?verify(\/|$)/.test(pathname)
+  if (isVerifyPath) {
+    const correlationId = req.headers.get('x-correlation-id') ?? crypto.randomUUID()
+    const clientIp = getClientIp(req)
+
+    // Optional bot detection (Cloudflare Turnstile / hCaptcha) for high-volume use.
+    // Only enforced when the corresponding secret is configured.
+    if (process.env.TURNSTILE_SECRET_KEY || process.env.HCAPTCHA_SECRET_KEY) {
+      const botToken =
+        req.headers.get('cf-turnstile-response') ??
+        req.headers.get('x-hcaptcha-response')
+      if (!botToken) {
+        const forbidden = NextResponse.json(
+          { error: 'Bot verification required' },
+          { status: 403 },
+        )
+        forbidden.headers.set('x-correlation-id', correlationId)
+        if (corsHeaders) {
+          for (const [k, v] of Object.entries(corsHeaders)) {
+            forbidden.headers.set(k, v)
+          }
+        }
+        return forbidden
+      }
+    }
+
+    const limit = checkVerifyRateLimit(clientIp)
+    if (!limit.allowed) {
+      const retryAfter = Math.max(0, Math.ceil((limit.reset - Date.now()) / 1000))
+      const tooMany = NextResponse.json(
+        { error: 'Too Many Requests', retryAfter },
+        { status: 429 },
+      )
+      tooMany.headers.set('Retry-After', String(retryAfter))
+      tooMany.headers.set('X-RateLimit-Limit', String(limit.limit))
+      tooMany.headers.set('X-RateLimit-Remaining', String(limit.remaining))
+      tooMany.headers.set('X-RateLimit-Reset', String(limit.reset))
+      tooMany.headers.set('x-correlation-id', correlationId)
+      if (corsHeaders) {
+        for (const [k, v] of Object.entries(corsHeaders)) {
+          tooMany.headers.set(k, v)
+        }
+      }
+      return tooMany
+    }
   }
 
   // ── Correlation ID injection ──────────────────────────────────────────────

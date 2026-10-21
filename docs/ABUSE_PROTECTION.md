@@ -10,12 +10,17 @@ SolarProof's public API endpoints are protected against abuse via IP-based rate 
 |---|---|---|
 | `POST /api/readings` | 10 requests | 60 seconds per IP |
 | `GET /api/verify` | 30 requests | 60 seconds per IP |
+| `GET /api/verify/{id}` | 30 requests | 60 seconds per IP |
+| `GET /api/v1/verify` | 30 requests | 60 seconds per IP |
+| `GET /api/v1/verify/{id}` | 30 requests | 60 seconds per IP |
+
+The public verifier endpoints (`/api/verify`, `/api/verify/{id}` and their `/api/v1` equivalents) are limited to **30 requests per 60 seconds per IP**.
 
 ---
 
 ## Rate limiting
 
-Rate limiting is implemented in `apps/web/src/lib/rate-limit.ts`.
+Rate limiting for the public verifier is enforced in `apps/web/src/middleware.ts`, which applies the policy to every matching request before it reaches the route handler. The underlying counter store lives in `apps/web/src/lib/rate-limit.ts`.
 
 When the limit is exceeded the API returns:
 
@@ -27,7 +32,7 @@ X-RateLimit-Remaining: 0
 ```
 
 **Current backend:** in-memory store (per serverless instance).  
-**Recommended for production:** replace with an edge-distributed store (e.g. [Upstash Redis](https://upstash.com/) or Vercel KV) so limits are enforced consistently across all instances.
+**Recommended for production:** replace with an edge-distributed KV store (e.g. [Upstash Redis](https://upstash.com/) or Vercel KV) so limits are enforced consistently across all instances. The in-memory store is intended for local development and single-instance deployments only.
 
 ---
 
@@ -53,13 +58,20 @@ This prevents fabricated readings from untrusted sources (`HTTP 401`).
 
 ---
 
-## CAPTCHA / bot detection (future)
+## CAPTCHA / bot detection (optional)
 
-For higher-risk scenarios (e.g. a future public submission UI) add CAPTCHA at the network/CDN layer:
+For high-volume or higher-risk deployments, an optional bot-detection challenge can be layered on top of rate limiting. It is disabled by default and gated by the `BOT_DETECTION_PROVIDER` environment variable:
+
+| `BOT_DETECTION_PROVIDER` | Provider | Required secret |
+|---|---|---|
+| unset / empty | Disabled (rate limiting only) | — |
+| `turnstile` | [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) | `TURNSTILE_SECRET_KEY` |
+| `hcaptcha` | [hCaptcha](https://www.hcaptcha.com/) | `HCAPTCHA_SECRET_KEY` |
+
+When enabled, the client obtains a token from the provider and passes it to the API; the server verifies the token against the provider's siteverify endpoint before processing the request. Requests with a missing or invalid token are rejected.
 
 - **Cloudflare Turnstile** — zero-friction, works with edge middleware
 - **hCaptcha** — open alternative
-- Place the challenge in the frontend form; pass the token to the API and verify it server-side before processing.
 
 ---
 

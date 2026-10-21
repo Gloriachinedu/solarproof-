@@ -12,6 +12,10 @@ import { getCachedCert, setCachedCert } from '@/lib/cache'
  *   - mint_tx_hash (64-char hex)
  *
  * Response is cached for 60 s.
+ *
+ * Abuse protection: per-IP rate limiting (30 req/min) and optional bot
+ * detection (Cloudflare Turnstile / hCaptcha) are enforced for this route
+ * by middleware.ts — see docs/ABUSE_PROTECTION.md.
  */
 export async function GET(
   _req: NextRequest,
