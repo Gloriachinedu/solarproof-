@@ -119,6 +119,106 @@ export async function sendMintFailedEmail(to: string, params: {
 }
 
 /**
+ * Certificate status values that can trigger a notification email (#121).
+ */
+export type CertificateStatus = 'issued' | 'verified' | 'failed' | 'retired'
+
+interface CertificateStatusMeta {
+  title: string
+  subject: (params: CertificateStatusEmailParams) => string
+  body: (params: CertificateStatusEmailParams) => string
+}
+
+export interface CertificateStatusEmailParams {
+  certificate_id: string
+  status: CertificateStatus
+  kwh?: number
+  tx_hash?: string
+  error?: string
+  diagnosis?: unknown
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8)
+}
+
+const CERTIFICATE_STATUS_META: Record<CertificateStatus, CertificateStatusMeta> = {
+  issued: {
+    title: 'Certificate Issued ✅',
+    subject: (p) => `SolarProof: certificate ${shortId(p.certificate_id)} issued`,
+    body: (p) => `
+    <p>A new energy certificate has been issued.</p>
+    <table style="border-collapse:collapse;width:100%">
+      <tr><td style="padding:8px;font-weight:bold">Certificate ID</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.certificate_id)}</td></tr>
+      ${p.kwh !== undefined ? `<tr><td style="padding:8px;font-weight:bold">kWh</td><td style="padding:8px">${p.kwh}</td></tr>` : ''}
+      ${p.tx_hash ? `<tr><td style="padding:8px;font-weight:bold">TX</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.tx_hash)}</td></tr>` : ''}
+    </table>`,
+  },
+  verified: {
+    title: 'Certificate Verified 🔎',
+    subject: (p) => `SolarProof: certificate ${shortId(p.certificate_id)} verified`,
+    body: (p) => `
+    <p>An energy certificate has been verified.</p>
+    <table style="border-collapse:collapse;width:100%">
+      <tr><td style="padding:8px;font-weight:bold">Certificate ID</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.certificate_id)}</td></tr>
+      ${p.kwh !== undefined ? `<tr><td style="padding:8px;font-weight:bold">kWh</td><td style="padding:8px">${p.kwh}</td></tr>` : ''}
+      ${p.tx_hash ? `<tr><td style="padding:8px;font-weight:bold">TX</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.tx_hash)}</td></tr>` : ''}
+    </table>`,
+  },
+  failed: {
+    title: 'Certificate Failed ⚠️',
+    subject: (p) => `SolarProof: certificate ${shortId(p.certificate_id)} failed`,
+    body: (p) => `
+    <p>A certificate operation failed and requires attention.</p>
+    <table style="border-collapse:collapse;width:100%">
+      <tr><td style="padding:8px;font-weight:bold">Certificate ID</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.certificate_id)}</td></tr>
+      ${p.error ? `<tr><td style="padding:8px;font-weight:bold">Error</td><td style="padding:8px;color:#dc2626">${escapeHtml(p.error)}</td></tr>` : ''}
+    </table>
+    ${p.diagnosis ? `<pre style="background:#fef2f2;padding:12px;border-radius:4px;font-size:12px;overflow-x:auto">${escapeHtml(JSON.stringify(p.diagnosis, null, 2))}</pre>` : ''}`,
+  },
+  retired: {
+    title: 'Certificate Retired 🏁',
+    subject: (p) => `SolarProof: certificate ${shortId(p.certificate_id)} retired`,
+    body: (p) => `
+    <p>An energy certificate has been retired.</p>
+    <table style="border-collapse:collapse;width:100%">
+      <tr><td style="padding:8px;font-weight:bold">Certificate ID</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.certificate_id)}</td></tr>
+      ${p.kwh !== undefined ? `<tr><td style="padding:8px;font-weight:bold">kWh</td><td style="padding:8px">${p.kwh}</td></tr>` : ''}
+      ${p.tx_hash ? `<tr><td style="padding:8px;font-weight:bold">Retire TX</td><td style="padding:8px;font-family:monospace;font-size:12px">${escapeHtml(p.tx_hash)}</td></tr>` : ''}
+    </table>`,
+  },
+}
+
+/**
+ * Send a certificate status change notification email (#121).
+ *
+ * Renders subject/body for issued, verified, failed and retired events and
+ * reuses the existing Resend sendEmail path. Fire-and-forget: failures are
+ * logged but never thrown.
+ */
+export async function sendCertificateStatusEmail(
+  to: string,
+  params: CertificateStatusEmailParams,
+): Promise<void> {
+  const meta = CERTIFICATE_STATUS_META[params.status]
+  if (!meta) {
+    console.error('[email] unknown certificate status', { status: params.status })
+    return
+  }
+  const html = baseTemplate(meta.title, meta.body(params))
+  await sendEmail({ to, subject: meta.subject(params), html })
+}
+
+/**
  * Send an account lockout notification email.
  *
  * Called after MAX_ATTEMPTS consecutive failed logins (issue #115).

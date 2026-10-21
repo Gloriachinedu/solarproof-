@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { WalletGate } from '@/components/wallet-gate'
 import {
   AreaChart,
@@ -15,7 +15,7 @@ import {
   Line,
 } from 'recharts'
 import { useTheme } from 'next-themes'
-import { Zap, Award, Leaf, TrendingUp, Download } from 'lucide-react'
+import { Zap, Award, Leaf, TrendingUp, Download, Bell } from 'lucide-react'
 import { AccessibleLegend } from '@/components/accessible-chart-legend'
 import { StatCardSkeleton, ChartSkeleton, TableRowSkeleton } from '@/components/skeleton'
 import { useState, useMemo, memo } from 'react'
@@ -60,6 +60,21 @@ interface AnalyticsResponse {
   trends: TrendBucket[]
   meter_stats: MeterStat[]
   range: { start: string; end: string; granularity: string }
+}
+
+type NotificationEventType = 'issued' | 'verified' | 'failed' | 'retired'
+
+interface NotificationItem {
+  id: string
+  event_type: NotificationEventType
+  certificate_id: string
+  message?: string
+  created_at: string
+  read: boolean
+}
+
+interface NotificationsResponse {
+  notifications: NotificationItem[]
 }
 
 type Period = 'day' | 'month' | 'year'
@@ -119,6 +134,26 @@ async function fetchReadings(): Promise<Reading[]> {
   const res = await fetch('/api/readings')
   if (!res.ok) throw new Error('Failed to load readings')
   return res.json()
+}
+
+async function fetchNotifications(): Promise<NotificationsResponse> {
+  const res = await fetch('/api/notifications')
+  if (!res.ok) throw new Error('Failed to load notifications')
+  return res.json()
+}
+
+async function markNotificationRead(id: string): Promise<void> {
+  const res = await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error('Failed to mark notification as read')
+}
+
+const EVENT_TYPE_STYLES: Record<NotificationEventType, string> = {
+  issued: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  verified: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+  failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  retired: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +244,7 @@ export default function DashboardPage() {
   }, [range, granularity])
 
   const { isConnected, error: wsError } = useRealtimeReadings()
+  const queryClient = useQueryClient()
 
   const {
     data: analytics,
@@ -228,6 +264,25 @@ export default function DashboardPage() {
     queryFn: fetchReadings,
     refetchInterval: isConnected ? false : 30000,
   })
+
+  const {
+    data: notificationsData,
+    isLoading: notificationsLoading,
+    error: notificationsError,
+  } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: fetchNotifications,
+    refetchInterval: 30000,
+  })
+
+  const markReadMutation = useMutation({
+    mutationFn: markNotificationRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+    },
+  })
+
+  const notifications = notificationsData?.notifications ?? []
 
   const colors = useChartColors()
   
@@ -471,6 +526,68 @@ export default function DashboardPage() {
                         {((m.total_kwh / (stats.total_kwh || 1)) * 100).toFixed(1)}%
                       </span>
                     </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Notification history */}
+      <section className="mb-8" aria-labelledby="notifications-heading">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 id="notifications-heading" className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <Bell className="h-4 w-4 text-yellow-500" aria-hidden="true" />
+            Certificate alerts
+          </h2>
+          {notifications.some((n) => !n.read) && (
+            <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-bold uppercase text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+              {notifications.filter((n) => !n.read).length} unread
+            </span>
+          )}
+        </div>
+        {notificationsError && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">Failed to load notifications.</p>
+        )}
+        <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+          <table className="min-w-full divide-y divide-gray-200 bg-white text-sm dark:divide-gray-800 dark:bg-gray-900">
+            <thead>
+              <tr className="bg-gray-50 dark:bg-gray-800/50">
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Event</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Certificate</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">When</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {notificationsLoading ? (
+                <><TableRowSkeleton cols={4} /><TableRowSkeleton cols={4} /><TableRowSkeleton cols={4} /></>
+              ) : notifications.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                    No certificate alerts yet.
+                  </td>
+                </tr>
+              ) : notifications.slice(0, 10).map((n) => (
+                <tr
+                  key={n.id}
+                  onClick={() => {
+                    if (!n.read && !markReadMutation.isPending) markReadMutation.mutate(n.id)
+                  }}
+                  className={`transition-colors ${n.read ? '' : 'cursor-pointer bg-yellow-50/50 hover:bg-yellow-50 dark:bg-yellow-900/10 dark:hover:bg-yellow-900/20'}`}
+                >
+                  <td className="px-6 py-3">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${EVENT_TYPE_STYLES[n.event_type]}`}>
+                      {n.event_type}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3 font-mono text-[10px] text-gray-500">{n.certificate_id}</td>
+                  <td className="px-6 py-3 text-gray-500">{new Date(n.created_at).toLocaleString()}</td>
+                  <td className="px-6 py-3 text-right">
+                    <span className={`text-[10px] font-bold uppercase ${n.read ? 'text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                      {n.read ? 'Read' : 'Unread'}
+                    </span>
                   </td>
                 </tr>
               ))}

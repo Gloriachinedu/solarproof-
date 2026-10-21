@@ -155,6 +155,71 @@ export interface Database {
         }>
         Relationships: []
       }
+      notification_preferences: {
+        Row: {
+          id: string; cooperative_id: string
+          channel_in_app: boolean; channel_email: boolean; channel_webhook: boolean
+          email_address: string | null
+          events: string[]
+          created_at: string; updated_at: string
+        }
+        Insert: {
+          cooperative_id: string
+          channel_in_app?: boolean; channel_email?: boolean; channel_webhook?: boolean
+          email_address?: string | null
+          events?: string[]
+        }
+        Update: Partial<{
+          cooperative_id: string
+          channel_in_app: boolean; channel_email: boolean; channel_webhook: boolean
+          email_address: string | null
+          events: string[]
+        }>
+        Relationships: [{ foreignKeyName: 'notification_preferences_cooperative_id_fkey'; columns: ['cooperative_id']; referencedRelation: 'cooperatives'; referencedColumns: ['id'] }]
+      }
+      notifications: {
+        Row: {
+          id: string; cooperative_id: string; event: string
+          certificate_id: string | null; title: string; body: string
+          payload: Json | null; read: boolean; created_at: string
+        }
+        Insert: {
+          cooperative_id: string; event: string
+          certificate_id?: string | null; title: string; body: string
+          payload?: Json | null; read?: boolean
+        }
+        Update: Partial<{
+          cooperative_id: string; event: string
+          certificate_id: string | null; title: string; body: string
+          payload: Json | null; read: boolean
+        }>
+        Relationships: [
+          { foreignKeyName: 'notifications_cooperative_id_fkey'; columns: ['cooperative_id']; referencedRelation: 'cooperatives'; referencedColumns: ['id'] },
+          { foreignKeyName: 'notifications_certificate_id_fkey'; columns: ['certificate_id']; referencedRelation: 'certificates'; referencedColumns: ['id'] }
+        ]
+      }
+      notification_deliveries: {
+        Row: {
+          id: string; notification_id: string; channel: 'in_app' | 'email' | 'webhook'
+          status: 'pending' | 'delivered' | 'failed'
+          attempts: number; last_error: string | null
+          next_attempt_at: string | null; delivered_at: string | null
+          created_at: string; updated_at: string
+        }
+        Insert: {
+          notification_id: string; channel: 'in_app' | 'email' | 'webhook'
+          status?: 'pending' | 'delivered' | 'failed'
+          attempts?: number; last_error?: string | null
+          next_attempt_at?: string | null; delivered_at?: string | null
+        }
+        Update: Partial<{
+          notification_id: string; channel: 'in_app' | 'email' | 'webhook'
+          status: 'pending' | 'delivered' | 'failed'
+          attempts: number; last_error: string | null
+          next_attempt_at: string | null; delivered_at: string | null
+        }>
+        Relationships: [{ foreignKeyName: 'notification_deliveries_notification_id_fkey'; columns: ['notification_id']; referencedRelation: 'notifications'; referencedColumns: ['id'] }]
+      }
     }
     Views: Record<string, never>
     Functions: {
