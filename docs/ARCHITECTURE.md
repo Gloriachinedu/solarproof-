@@ -48,13 +48,32 @@
   │  │   1 token = 1 kWh   │ │   │  • readings      (id, kwh, anchored,     │
   │  └─────────────────────┘ │   │                   minted, tx hashes)     │
   │  ┌─────────────────────┐ │   │  • certificates  (id, kwh, retired,      │
-  │  │   audit_registry    │ │   │                   anchor_tx, mint_tx)    │
-  │  │   immutable anchors │ │   │                                          │
-  │  └─────────────────────┘ │   │  RLS: row-level security per cooperative │
-  │  ┌─────────────────────┐ │   └──────────────────────────────────────────┘
-  │  │community_governance │ │
+  │  │   audit_registry    │ │   │                   anchor_tx, mint_tx,    │
+  │  │   immutable anchors │ │   │                   ew_token_id)            │
+  │  └─────────────────────┘ │   │                                          │
+  │  ┌─────────────────────┐ │   │  RLS: row-level security per cooperative │
+  │  │community_governance │ │   └──────────────────────────────────────────┘
   │  │proposals + voting   │ │
   │  └─────────────────────┘ │
+  └──────────────────────────┘
+        │
+        │  Certificate created event
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │              Energy Web Origin Bridge (Node.js + ethers.js)             │
+  │                                                                         │
+  │  1. Receive new certificate (id, kwh, anchor_tx)                        │
+  │  2. Issue ERC-1888 EAC token on Energy Web Chain                        │
+  │     metadata: { solarproofCertId, solarproofAnchorTx, kwh }             │
+  │  3. Store ERC-1888 token ID on certificate (ew_token_id)                │
+  │  4. Retry with backoff on failure; idempotent per certificate           │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        │  ERC-1888 mint
+        ▼
+  ┌──────────────────────────┐
+  │   Energy Web Chain        │
+  │   ERC-1888 EAC registry   │
   └──────────────────────────┘
         ▲
         │  Verify chain of custody
@@ -111,10 +130,22 @@
 | Hosting | Vercel | Next.js serverless deployment |
 | Database | Supabase (Postgres) | Persistent store for readings, meters, certificates |
 | Blockchain | Stellar Testnet | On-chain anchoring and certificate tokens |
+| Bridge | Energy Web Origin bridge (Node.js + ethers.js) | Issues ERC-1888 EAC tokens on Energy Web Chain for each new certificate |
 | Monorepo | Turborepo + pnpm | Build orchestration and workspace management |
 | CI | GitHub Actions | Lint, type-check, build, Rust fmt/clippy/test |
 | Monitoring | Sentry | Runtime error tracking (client + server + edge) |
 | Analytics | Vercel Analytics + Speed Insights | Frontend performance and usage |
+
+### Energy Web Origin Bridge (`services/ew-origin-bridge/`)
+
+A standalone Node.js microservice (ethers.js) that mirrors each new SolarProof
+certificate as an ERC-1888 EAC token on Energy Web Chain. It consumes certificate
+creation events, embeds the SolarProof Stellar anchor tx hash in the token
+metadata, and writes the resulting ERC-1888 token ID back onto the certificate
+record. Failures are retried with backoff; issuance is idempotent per certificate.
+
+See [ADR-008: Energy Web Origin Bridge](./adr/008-energy-web-origin-bridge.md)
+and [IREC / Energy Web Interop](./IREC_ENERGYWEB_INTEROP.md) for details.
 
 ---
 
@@ -129,8 +160,11 @@
 6. API calls audit_registry.anchor(reading_hash) on Stellar → anchor_tx_hash
 7. API calls energy_token.mint(recipient, kwh_stroops) → mint_tx_hash
 8. API inserts certificate row in Supabase
-9. Operator views certificate on /certificates
-10. Auditor verifies full chain on /verify
+9. Energy Web Origin bridge issues ERC-1888 EAC token on Energy Web Chain,
+   embedding anchor_tx_hash in token metadata → ew_token_id
+10. Bridge stores ew_token_id on the certificate row
+11. Operator views certificate on /certificates
+12. Auditor verifies full chain on /verify
 ```
 
 ---
@@ -140,5 +174,10 @@
 - **Meter → API**: Ed25519 signature verification; invalid signatures rejected with 401
 - **API → Supabase**: Service role key used server-side only; never exposed to client
 - **API → Stellar**: Minter secret key stored as server-side env var (`MINTER_SECRET_KEY`)
+- **Bridge → Energy Web Chain**: Bridge signer key stored as server-side env var only; never exposed to client or logs
 - **Client → Supabase**: Anon key with row-level security policies per cooperative
 - **Public Verifier**: Read-only, no authentication required
+
+See [ADR-008: Energy Web Origin Bridge](./adr/008-energy-web-origin-bridge.md)
+for the bridge's token metadata schema, retry/idempotency model, and security
+considerations.

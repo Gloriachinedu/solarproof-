@@ -2,12 +2,19 @@
 
 import { useTheme } from 'next-themes'
 import { useQuery } from '@tanstack/react-query'
-import { Moon, Sun, Building2, User } from 'lucide-react'
+import { Moon, Sun, Building2, User, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
+
+const DASHBOARD_FILTER_KEYS = [
+  'dashboard:dateRange',
+  'dashboard:meterId',
+  'dashboard:certificateStatus'
+]
 
 export default function SettingsPage() {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const [filtersReset, setFiltersReset] = useState(false)
   useEffect(() => setMounted(true), [])
 
   const isDark = mounted && resolvedTheme === 'dark'
@@ -23,6 +30,15 @@ export default function SettingsPage() {
 
   function toggleTheme() {
     setTheme(isDark ? 'light' : 'dark')
+  }
+
+  function resetDashboardFilters() {
+    if (typeof window === 'undefined') return
+    const userId = window.localStorage.getItem('userId') || 'anonymous'
+    for (const key of DASHBOARD_FILTER_KEYS) {
+      window.localStorage.removeItem(`${key}:${userId}`)
+    }
+    setFiltersReset(true)
   }
 
   return (
@@ -79,6 +95,32 @@ export default function SettingsPage() {
             >
               {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
               {isDark ? 'Light mode' : 'Dark mode'}
+            </button>
+          </div>
+        </section>
+
+        {/* Dashboard Filters - Issue #124: Persistent user context */}
+        <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Dashboard filters</h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                Your date range, meter selection and certificate status filters are remembered across sessions.
+                Reset them to return to the defaults.
+              </p>
+              {filtersReset && (
+                <p className="mt-2 text-sm text-green-600 dark:text-green-400" role="status">
+                  Dashboard filters have been reset.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={resetDashboardFilters}
+              className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Reset filters
             </button>
           </div>
         </section>

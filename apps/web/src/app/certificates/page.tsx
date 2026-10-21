@@ -1,13 +1,14 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Award, Leaf, Search, X, FileDown, AlertTriangle } from 'lucide-react'
+import { Award, Leaf, Search, X, FileDown, AlertTriangle, RotateCcw } from 'lucide-react'
 import { RetireModal } from '@/components/retire-modal'
 import { TransferModal } from '@/components/transfer-modal'
 import { useToast } from '@/components/toast'
 import { useWallet } from '@/hooks/useWallet'
+import { usePersistentFilters } from '@/hooks/usePersistentFilters'
 import { WalletGate } from '@/components/wallet-gate'
 import { TableRowSkeleton } from '@/components/skeleton'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -137,40 +138,71 @@ export default function CertificatesPage() {
   const [bulkRetiring, setBulkRetiring] = useState(false)
   const [showBulkConfirm, setShowBulkConfirm] = useState(false)
 
-  // Read filter state from URL
-  const q = searchParams.get('q') ?? ''
-  const status = searchParams.get('status') ?? ''
-  const dateFrom = searchParams.get('date_from') ?? ''
-  const dateTo = searchParams.get('date_to') ?? ''
+  // Persistent filter state (per-user, restored from localStorage across sessions)
+  const { filters, setFilter, resetFilters, isHydrated } = usePersistentFilters(
+    'certificates',
+    {
+      q: '',
+      status: '',
+      date_from: '',
+      date_to: '',
+      meter_id: '',
+    },
+    address
+  )
+
+  const q = filters.q
+  const status = filters.status
+  const dateFrom = filters.date_from
+  const dateTo = filters.date_to
+  const meterId = filters.meter_id
 
   // Local draft state for the search input (debounced via form submit)
   const [draft, setDraft] = useState(q)
 
-  function pushParams(updates: Record<string, string>) {
-    const params = new URLSearchParams(searchParams.toString())
-    for (const [k, v] of Object.entries(updates)) {
-      if (v) params.set(k, v)
-      else params.delete(k)
+  // Keep the search draft in sync when persisted state is restored
+  useEffect(() => {
+    setDraft(q)
+  }, [q])
+
+  // Mirror persisted filters into the URL so links stay shareable
+  useEffect(() => {
+    if (!isHydrated) return
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (status) params.set('status', status)
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    if (meterId) params.set('meter_id', meterId)
+    const next = params.toString()
+    const current = searchParams.toString()
+    if (next !== current) {
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
     }
-    params.delete('cursor') // reset pagination on filter change
-    router.push(`${pathname}?${params.toString()}`)
+  }, [isHydrated, q, status, dateFrom, dateTo, meterId, pathname, router, searchParams])
+
+  function pushParams(updates: Record<string, string>) {
+    for (const [k, v] of Object.entries(updates)) {
+      setFilter(k as keyof typeof filters, v)
+    }
   }
 
   function clearFilters() {
     setDraft('')
-    router.push(pathname)
+    resetFilters()
   }
 
-  const hasFilters = q || status || dateFrom || dateTo
+  const hasFilters = q || status || dateFrom || dateTo || meterId
 
   const queryParams = new URLSearchParams()
   if (q) queryParams.set('q', q)
   if (status) queryParams.set('status', status)
   if (dateFrom) queryParams.set('date_from', dateFrom)
   if (dateTo) queryParams.set('date_to', dateTo)
+  if (meterId) queryParams.set('meter_id', meterId)
 
   const { data: response, isLoading, error } = useQuery({
-    queryKey: ['certificates', q, status, dateFrom, dateTo],
+    queryKey: ['certificates', q, status, dateFrom, dateTo, meterId],
     queryFn: () => fetchCertificates(queryParams),
   })
 
@@ -182,7 +214,7 @@ export default function CertificatesPage() {
       pushParams({ q: draft })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draft, searchParams]
+    [draft, setFilter]
   )
 
   async function handleTransfer(toAddress: string) {
@@ -329,6 +361,22 @@ export default function CertificatesPage() {
             </select>
           </div>
 
+          {/* Meter filter */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="meter-filter" className="text-xs text-gray-500 dark:text-gray-400">
+              Meter
+            </label>
+            <input
+              id="meter-filter"
+              type="text"
+              value={meterId}
+              onChange={(e) => pushParams({ meter_id: e.target.value })}
+              placeholder="Meter ID…"
+              aria-label="Filter by meter ID"
+              className="w-36 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </div>
+
           {/* Date range */}
           <div className="flex items-center gap-1.5">
             <label htmlFor="date-from" className="text-xs text-gray-500 dark:text-gray-400">
@@ -357,15 +405,15 @@ export default function CertificatesPage() {
             />
           </div>
 
-          {/* Clear filters */}
+          {/* Reset filters (clears persisted state) */}
           {hasFilters && (
             <button
               onClick={clearFilters}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              aria-label="Clear all filters"
+              aria-label="Reset all filters and clear saved preferences"
             >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Clear
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              Reset filters
             </button>
           )}
 
