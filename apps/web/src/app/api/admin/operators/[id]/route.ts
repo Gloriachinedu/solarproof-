@@ -25,6 +25,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const parsed = PatchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
+  // Service role required: admin action; suspending an operator requires
+  // cross-cooperative write access. See docs/adr/007-supabase-service-role-usage.md
   const db = createServiceClient()
   const { data, error } = await db
     .from('cooperatives')
