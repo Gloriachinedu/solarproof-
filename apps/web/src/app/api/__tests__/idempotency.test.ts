@@ -27,6 +27,8 @@ vi.mock('@/lib/stellar', () => ({
 }))
 vi.mock('@/lib/cache', () => ({
   invalidateCert: vi.fn().mockResolvedValue(undefined),
+  getCachedMeterRevocation: vi.fn().mockResolvedValue(null),
+  setCachedMeterRevocation: vi.fn().mockResolvedValue(undefined),
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, retryAfter: 0 }),
 }))
 vi.mock('@/lib/rate-limit', () => ({
@@ -63,6 +65,9 @@ vi.mock('@/lib/idempotency', () => ({
 
 vi.mock('@/lib/queue', () => ({
   enqueue: vi.fn().mockResolvedValue('job-id-test'),
+}))
+vi.mock('@/lib/operator-suspension', () => ({
+  isOperatorSuspended: vi.fn().mockResolvedValue(false),
 }))
 
 import { createServiceClient } from '@/lib/supabase'
@@ -117,23 +122,25 @@ function makeReadingRequest(body: unknown, headers: Record<string, string | null
 let _readingCounter = 0
 
 function mockDb(pubKeyHex: string) {
+  const meter = {
+    id: METER_ID,
+    pubkey_hex: pubKeyHex,
+    cooperative_id: COOP_ID,
+    api_key: 'mk_test_api_key',
+    api_key_expires_at: null,
+    active: true,
+    revoked_at: null,
+  }
   vi.mocked(createServiceClient).mockReturnValue({
     from: vi.fn((table: string) => {
       if (table === 'meters') {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({
-                  data: {
-                    id: METER_ID,
-                    pubkey_hex: pubKeyHex,
-                    cooperative_id: COOP_ID,
-                    api_key: 'mk_test_api_key',
-                  },
-                  error: null,
+                single: vi.fn().mockResolvedValue({ data: meter, error: null }),
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({ data: meter, error: null }),
                 }),
-              }),
             }),
           }),
         }

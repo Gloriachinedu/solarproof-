@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
+import { invalidateMeterRevocation } from '@/lib/cache'
 import { requireAuth, isAuthError } from '@/lib/auth'
 import { auditLog } from '@/lib/audit'
 
@@ -60,6 +61,8 @@ export async function POST(
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  await invalidateMeterRevocation(id)
 
   // Audit logging
   await auditLog(req, {

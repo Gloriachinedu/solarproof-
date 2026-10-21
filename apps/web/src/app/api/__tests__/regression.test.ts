@@ -24,6 +24,8 @@ vi.mock('@/lib/stellar', () => ({
 }))
 vi.mock('@/lib/cache', () => ({
   invalidateCert: vi.fn().mockResolvedValue(undefined),
+  getCachedMeterRevocation: vi.fn().mockResolvedValue(null),
+  setCachedMeterRevocation: vi.fn().mockResolvedValue(undefined),
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }))
 vi.mock('@/lib/auth', () => ({
@@ -92,7 +94,10 @@ function makeMeterRequest(body: unknown) {
 function mockReadingDb(meter: unknown) {
   const meterData = meter as { cooperatives?: { admin_address: string } | null } | null
   const adminAddress = meterData?.cooperatives?.admin_address ?? null
-  const single = vi.fn().mockResolvedValue({ data: meter, error: null })
+  const normalizedMeter = meter
+    ? { active: true, revoked_at: null, api_key_expires_at: null, ...(meter as object) }
+    : null
+  const single = vi.fn().mockResolvedValue({ data: normalizedMeter, error: null })
   const coopSingle = vi.fn().mockResolvedValue({
     data: adminAddress ? { admin_address: adminAddress } : null,
     error: null,
@@ -108,9 +113,7 @@ function mockReadingDb(meter: unknown) {
       if (table === 'meters') {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({ single }),
-            }),
+            eq: vi.fn().mockReturnValue({ single }),
           }),
         }
       }
@@ -137,6 +140,7 @@ function mockReadingDb(meter: unknown) {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               single: vi.fn().mockResolvedValue({ data: null }),
+              maybeSingle: vi.fn().mockResolvedValue({ data: null }),
             }),
           }),
           delete: vi.fn().mockReturnValue({
@@ -500,9 +504,15 @@ vi.mock('@/lib/health-checks', () => ({
 
 vi.mock('@/lib/cache', () => ({
   invalidateCert: vi.fn().mockResolvedValue(undefined),
+  getCachedMeterRevocation: vi.fn().mockResolvedValue(null),
+  setCachedMeterRevocation: vi.fn().mockResolvedValue(undefined),
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, retryAfter: 0 }),
   getCachedCert: vi.fn().mockResolvedValue(null),
   setCachedCert: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/lib/operator-suspension', () => ({
+  isOperatorSuspended: vi.fn().mockResolvedValue(false),
 }))
 
 vi.mock('@/lib/rate-limit', () => ({
