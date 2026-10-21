@@ -8,3 +8,71 @@
   outline: 2px solid #facc15; /* yellow-400 */
   outline-offset: 2px;
 }
+
+/* ---------------------------------------------------------------------------
+   Public verification kiosk mode
+   ---------------------------------------------------------------------------
+   Applied to the kiosk container (e.g. the verify page root when `?kiosk=1`).
+   Provides a full-screen, touch-friendly layout with large touch targets and
+   a high-contrast focus ring for WCAG 2.1 AA compliance. These styles
+   complement the Tailwind utility classes used in the verify page. */
+
+.kiosk {
+  min-height: 100vh;
+  min-width: 100vw;
+  /* Larger base font size for readability at a distance. */
+  font-size: 1.25rem; /* 20px */
+  line-height: 1.6;
+  /* Prevent accidental text selection / callouts on touch devices. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Enforce a minimum 44x44px touch target on interactive elements within the
+   kiosk container (WCAG 2.1 AA / Apple HIG recommendation). */
+.kiosk button,
+.kiosk input,
+.kiosk select,
+.kiosk textarea,
+.kiosk a,
+.kiosk [role="button"],
+.kiosk [role="link"] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Keep the focus ring visible and high-contrast in kiosk mode. */
+.kiosk :focus-visible {
+  outline: 3px solid #facc15; /* yellow-400 */
+  outline-offset: 3px;
+}
+
+/* In dark mode, use a bright ring that contrasts against dark backgrounds. */
+.dark .kiosk :focus-visible {
+  outline-color: #fde047; /* yellow-300 */
+}
+
+/* Larger headings within the kiosk for at-a-glance readability. */
+.kiosk h1 {
+  font-size: 2.5rem;
+  line-height: 1.2;
+}
+
+.kiosk h2 {
+  font-size: 2rem;
+  line-height: 1.25;
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .kiosk *,
+  .kiosk *::before,
+  .kiosk *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
