@@ -16,7 +16,7 @@ import { getRedisConnection } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { AppError } from '@/lib/errors'
 
-export type JobType = 'anchor_and_mint'
+export type JobType = 'anchor_and_mint' | 'notification_delivery'
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
 
 const QUEUE_NAME = 'stellar-transactions'
@@ -108,7 +108,7 @@ async function processJob(job: Job): Promise<void> {
   await db.from('jobs').update({ status: 'running', attempts: job.attemptsMade + 1 }).eq('id', dbJobId)
 
   try {
-    const result = await runAnchorAndMint(payload as unknown as AnchorAndMintPayload)
+    const result = await runJob(job.name as JobType, payload)
     await db.from('jobs').update({ status: 'done', result: result as import('@/lib/database.types').Json }).eq('id', dbJobId)
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
@@ -121,6 +121,31 @@ async function processJob(job: Job): Promise<void> {
       .eq('id', dbJobId)
     throw err // re-throw so BullMQ applies back-off / moves to failed set
   }
+}
+
+// ── Job routing ──────────────────────────────────────────────────────────────
+
+async function runJob(type: JobType, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  switch (type) {
+    case 'anchor_and_mint':
+      return runAnchorAndMint(payload as unknown as AnchorAndMintPayload)
+    case 'notification_delivery':
+      return runNotificationDelivery(payload as unknown as NotificationDeliveryPayload)
+    default:
+      throw new AppError(`Unknown job type: ${String(type)}`, 'INTERNAL')
+  }
+}
+
+// ── Notification delivery handler ────────────────────────────────────────────
+
+interface NotificationDeliveryPayload {
+  deliveryId: string
+}
+
+async function runNotificationDelivery(payload: NotificationDeliveryPayload): Promise<Record<string, unknown>> {
+  const { processDelivery } = await import('@/lib/notifications')
+  const result = await processDelivery(payload.deliveryId)
+  return { delivery_id: payload.deliveryId, status: result.status }
 }
 
 // ── Anchor-and-mint handler ──────────────────────────────────────────────────
@@ -175,6 +200,28 @@ async function runAnchorAndMint(payload: AnchorAndMintPayload): Promise<Record<s
     const message = err instanceof Error ? err.message : String(err)
     const category = err instanceof AppError ? err.category : 'INTERNAL'
     log.error('job.mint.failed', { reading_id: readingId, category, error: message })
+
+    // Dispatch certificate-failed notifications (best-effort; never mask the error)
+    try {
+      const { data: failedReading } = await db
+        .from('readings')
+        .select('meters(cooperative_id)')
+        .eq('id', readingId)
+        .maybeSingle()
+      const failedCoopId = (failedReading?.meters as { cooperative_id: string } | null)?.cooperative_id
+      if (failedCoopId) {
+        const { emitCertificateEvent } = await import('@/lib/notifications')
+        await emitCertificateEvent(failedCoopId, 'failed', {
+          reading_id: readingId,
+          error: message,
+          category,
+        })
+      }
+    } catch (notifyErr) {
+      const notifyMsg = notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+      log.error('job.notify.failed.failed', { reading_id: readingId, error: notifyMsg })
+    }
+
     throw err
   }
 
@@ -200,6 +247,20 @@ async function runAnchorAndMint(payload: AnchorAndMintPayload): Promise<Record<s
     await invalidateCert(readingId, readingHashHex, mintTxHash)
     await fireWebhook(cooperativeId, 'anchor', { reading_id: readingId, anchor_tx_hash: anchorTxHash })
     await fireWebhook(cooperativeId, 'mint', { reading_id: readingId, mint_tx_hash: mintTxHash, kwh })
+
+    // Dispatch certificate-issued notifications (best-effort; never fail the job)
+    try {
+      const { emitCertificateEvent } = await import('@/lib/notifications')
+      await emitCertificateEvent(cooperativeId, 'issued', {
+        reading_id: readingId,
+        anchor_tx_hash: anchorTxHash,
+        mint_tx_hash: mintTxHash,
+        kwh,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('job.notify.issued.failed', { reading_id: readingId, error: message })
+    }
   }
 
   return { anchor_tx_hash: anchorTxHash, mint_tx_hash: mintTxHash }

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { X, CheckCircle2, AlertTriangle, Info } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 export type ToastVariant = 'success' | 'error' | 'warning' | 'info'
 
@@ -19,9 +20,22 @@ interface ToastContextValue {
   pushToast: (toast: ToastPayload) => void
 }
 
+interface NotificationRow {
+  id: string
+  cooperative_id: string
+  title: string
+  body: string | null
+  variant: ToastVariant | null
+}
+
+interface ToastProviderProps {
+  children: React.ReactNode
+  cooperativeId?: string
+}
+
 const ToastContext = createContext<ToastContextValue | null>(null)
 
-export function ToastProvider({ children }: { children: React.ReactNode }) {
+export function ToastProvider({ children, cooperativeId }: ToastProviderProps) {
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   const pushToast = useCallback((toast: ToastPayload) => {
@@ -31,6 +45,36 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((toast) => toast.id !== id))
   }, [])
+
+  useEffect(() => {
+    if (!cooperativeId) return
+
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`notifications:${cooperativeId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `cooperative_id=eq.${cooperativeId}`,
+        },
+        (payload) => {
+          const row = payload.new as NotificationRow
+          pushToast({
+            title: row.title,
+            description: row.body ?? '',
+            variant: row.variant ?? 'info',
+          })
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [cooperativeId, pushToast])
 
   useEffect(() => {
     if (toasts.length === 0) return
