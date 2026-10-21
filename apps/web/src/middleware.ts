@@ -1,15 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders } from '@/lib/cors'
+import { checkCsrf } from '@/lib/csrf'
 
 export const SUPPORTED_LOCALES = ['en', 'es', 'fr', 'de', 'pt', 'ar'] as const
 export type Locale = typeof SUPPORTED_LOCALES[number]
+
+/** API routes that are exempt from CSRF validation (machine-to-machine, no browser session). */
+const CSRF_EXEMPT_PATHS = [
+  '/api/readings',       // Ed25519-signed meter submissions — no browser session
+  '/api/v1/readings',
+  '/api/webhooks',       // Inbound webhook callbacks from external services
+  '/api/v1/webhooks',
+  '/api/csrf',           // Token issuance endpoint itself
+]
+
+function isCsrfExempt(pathname: string): boolean {
+  return CSRF_EXEMPT_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))
+}
 
 /**
  * Middleware that:
  * 1. Enforces CORS policy — restricts origins to CORS_ALLOWED_ORIGINS + localhost in dev.
  * 2. Handles OPTIONS preflight requests.
- * 3. Injects a correlation ID into every API request.
- * 4. Redirects unversioned /api/* routes to /api/v1/* with a deprecation header.
+ * 3. Enforces CSRF token validation on all non-GET browser-facing API routes.
+ * 4. Injects a correlation ID into every API request.
+ * 5. Redirects unversioned /api/* routes to /api/v1/* with a deprecation header.
+ *
+ * CSRF enforcement (double-submit cookie pattern):
+ *   - All POST/PUT/PATCH/DELETE /api/** routes require a valid X-CSRF-Token header
+ *     that matches the csrf_token cookie value.
+ *   - Machine-to-machine routes (readings, webhooks) are exempt — they use
+ *     Ed25519 signatures or HMAC webhook secrets instead.
+ *   - Obtain a token via GET /api/csrf before submitting.
+ *   - Missing or invalid token returns HTTP 403.
  *
  * Correlation ID:
  *   - Reads `X-Correlation-Id` from the incoming request if present.
@@ -44,6 +67,19 @@ export function middleware(req: NextRequest) {
     }
     // Origin not allowed — return 403
     return new NextResponse(null, { status: 403 })
+  }
+
+  // ── CSRF enforcement ─────────────────────────────────────────────────────
+  // Validate CSRF token for all state-mutating API requests that originate
+  // from a browser session. Machine-to-machine routes are exempted.
+  if (pathname.startsWith('/api/') && !isCsrfExempt(pathname)) {
+    const csrfError = checkCsrf(req)
+    if (csrfError) {
+      // Attach correlation ID to CSRF error responses too
+      const corr = req.headers.get('x-correlation-id') ?? crypto.randomUUID()
+      csrfError.headers.set('x-correlation-id', corr)
+      return csrfError
+    }
   }
 
   // ── API versioning redirect ───────────────────────────────────────────────
