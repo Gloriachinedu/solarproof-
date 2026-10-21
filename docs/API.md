@@ -235,6 +235,67 @@ List registered webhook endpoints for a cooperative.
 
 ---
 
+### GET /api/cooperative/retirement-report
+
+Monthly certificate retirement report for a cooperative. Returns the total kWh retired in the requested month, a per-buyer breakdown, and the retired certificate IDs. The report can be returned as JSON or downloaded as CSV.
+
+**Authentication**
+
+Requires a cooperative admin session (Supabase auth cookie). The authenticated user must be an admin of the cooperative whose report is requested; otherwise the request is rejected with `403 Forbidden`.
+
+**Query parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `month` | `string` (`YYYY-MM`) | ✅ | Calendar month (UTC) to report on, e.g. `2026-04` |
+| `format` | `string` | ❌ | `json` (default) or `csv` |
+
+**Example requests**
+
+```http
+GET /api/cooperative/retirement-report?month=2026-04
+```
+
+```http
+GET /api/cooperative/retirement-report?month=2026-04&format=csv
+```
+
+**Responses**
+
+| Status | Meaning | Body |
+|---|---|---|
+| `200 OK` | Report generated | JSON report, or CSV file (`text/csv`) when `format=csv` |
+| `400 Bad Request` | `month` missing or not in `YYYY-MM` format, or invalid `format` | `{ error: string }` |
+| `401 Unauthorized` | No authenticated session | `{ error: string }` |
+| `403 Forbidden` | Authenticated user is not a cooperative admin | `{ error: string }` |
+| `500 Internal Server Error` | Database query failed | `{ error: string }` |
+
+**200 response body (JSON)**
+
+```json
+{
+  "month": "2026-04",
+  "cooperative_id": "uuid",
+  "total_kwh_retired": 1250.5,
+  "total_certificates": 42,
+  "buyers": [
+    {
+      "buyer_id": "uuid",
+      "buyer_name": "Acme Corp",
+      "total_kwh": 750.25,
+      "certificate_count": 25,
+      "certificate_ids": ["uuid", "uuid"]
+    }
+  ]
+}
+```
+
+**CSV response**
+
+When `format=csv` is requested, the response has `Content-Type: text/csv` and `Content-Disposition: attachment; filename="retirement-report-2026-04.csv"`. Columns: `buyer_id`, `buyer_name`, `certificate_id`, `kwh`, `retired_at`.
+
+---
+
 ### GET /api/ws/readings
 
 **Not implemented.** This route currently responds with `501 Not Implemented` JSON; it does not accept WebSocket upgrades or publish events. Real-time certificate alerts require a WebSocket-capable event service or an authorized Supabase Realtime subscription before the frontend can receive issuance, failure, and retirement notifications. The event source and payload contract must be defined before a client integration can be implemented. See [issue #11](https://github.com/katecatherinaa/solarproof/issues/11).

@@ -61,6 +61,8 @@ jobs:
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      - name: translation coverage check (i18n)
+        run: pnpm --filter @solarproof/web i18n:check
       - run: pnpm test
         working-directory: apps/web
       - name: Run tests with coverage

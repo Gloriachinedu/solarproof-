@@ -26,6 +26,7 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 export default function SettingsPage() {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const [filtersReset, setFiltersReset] = useState(false)
   useEffect(() => setMounted(true), [])
 
   const isDark = mounted && resolvedTheme === 'dark'
@@ -85,6 +86,15 @@ export default function SettingsPage() {
 
   function toggleTheme() {
     setTheme(isDark ? 'light' : 'dark')
+  }
+
+  function resetDashboardFilters() {
+    if (typeof window === 'undefined') return
+    const userId = window.localStorage.getItem('userId') || 'anonymous'
+    for (const key of DASHBOARD_FILTER_KEYS) {
+      window.localStorage.removeItem(`${key}:${userId}`)
+    }
+    setFiltersReset(true)
   }
 
   return (

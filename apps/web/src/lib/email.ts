@@ -118,6 +118,73 @@ export async function sendMintFailedEmail(to: string, params: {
   await sendEmail({ to, subject: `SolarProof: mint failed for reading ${params.reading_id.slice(0, 8)}`, html })
 }
 
+export interface RetirementReportBuyer {
+  buyer: string
+  kwh: number
+  certificate_ids: string[]
+}
+
+export interface RetirementReportParams {
+  /** Report month in YYYY-MM format. */
+  month: string
+  total_kwh: number
+  buyers: RetirementReportBuyer[]
+  cooperative_id?: string
+}
+
+/**
+ * Send the monthly cooperative certificate retirement report (#123).
+ *
+ * Fire-and-forget: failures are logged but never thrown, consistent with the
+ * other senders in this module.
+ */
+export async function sendRetirementReportEmail(
+  to: string,
+  params: RetirementReportParams,
+): Promise<void> {
+  try {
+    const buyerRows = params.buyers.length
+      ? params.buyers
+          .map(
+            (b) => `
+      <tr>
+        <td style="padding:8px;border-top:1px solid #e5e7eb;font-family:monospace;font-size:12px">${b.buyer}</td>
+        <td style="padding:8px;border-top:1px solid #e5e7eb;text-align:right">${b.kwh}</td>
+        <td style="padding:8px;border-top:1px solid #e5e7eb;font-family:monospace;font-size:12px">${b.certificate_ids.join(', ') || '—'}</td>
+      </tr>`,
+          )
+          .join('')
+      : `<tr><td colspan="3" style="padding:8px;border-top:1px solid #e5e7eb;color:#6b7280">No retirements recorded for this month.</td></tr>`
+
+    const html = baseTemplate(`Retirement Report — ${params.month} 📊`, `
+    <p>Here is the monthly certificate retirement report for your cooperative.</p>
+    <table style="border-collapse:collapse;width:100%;margin-bottom:16px">
+      <tr><td style="padding:8px;font-weight:bold">Month</td><td style="padding:8px">${params.month}</td></tr>
+      <tr><td style="padding:8px;font-weight:bold">Total kWh retired</td><td style="padding:8px">${params.total_kwh}</td></tr>
+      <tr><td style="padding:8px;font-weight:bold">Certificates retired</td><td style="padding:8px">${params.buyers.reduce((n, b) => n + b.certificate_ids.length, 0)}</td></tr>
+    </table>
+    <h3 style="margin-bottom:8px">Per-buyer breakdown</h3>
+    <table style="border-collapse:collapse;width:100%">
+      <thead>
+        <tr>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb">Buyer</th>
+          <th style="padding:8px;text-align:right;border-bottom:1px solid #e5e7eb">kWh</th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #e5e7eb">Certificate IDs</th>
+        </tr>
+      </thead>
+      <tbody>${buyerRows}</tbody>
+    </table>
+  `)
+    await sendEmail({
+      to,
+      subject: `SolarProof: retirement report for ${params.month}`,
+      html,
+    })
+  } catch (err) {
+    console.error('[email] retirement report send failed', err)
+  }
+}
+
 /**
  * Certificate status values that can trigger a notification email (#121).
  */

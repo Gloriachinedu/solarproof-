@@ -85,12 +85,20 @@ export interface Database {
           kwh: number; issued_at: string; retired: boolean
           retired_at: string | null; retired_by: string | null
           retire_tx_hash: string | null
+          erc1888_token_id: string | null
+          erc1888_issuance_status: 'pending' | 'issued' | 'failed' | null
+          erc1888_tx_hash: string | null
+          erc1888_issued_at: string | null
         }
         Insert: {
           cooperative_id: string; reading_id: string
           reading_hash: string; mint_tx_hash: string; anchor_tx_hash: string
           kwh: number; issued_at: string; retired: boolean
           retired_at?: string | null; retired_by?: string | null
+          erc1888_token_id?: string | null
+          erc1888_issuance_status?: 'pending' | 'issued' | 'failed' | null
+          erc1888_tx_hash?: string | null
+          erc1888_issued_at?: string | null
         }
         Update: Partial<{
           cooperative_id: string; reading_id: string
@@ -98,6 +106,10 @@ export interface Database {
           kwh: number; issued_at: string; retired: boolean
           retired_at: string | null; retired_by: string | null
           retire_tx_hash: string | null
+          erc1888_token_id: string | null
+          erc1888_issuance_status: 'pending' | 'issued' | 'failed' | null
+          erc1888_tx_hash: string | null
+          erc1888_issued_at: string | null
         }>
         Relationships: [{ foreignKeyName: 'certificates_reading_id_fkey'; columns: ['reading_id']; referencedRelation: 'readings'; referencedColumns: ['id'] }]
       }

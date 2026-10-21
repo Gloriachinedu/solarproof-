@@ -12,6 +12,10 @@
     "test:coverage": "pnpm --filter @solarproof/web vitest run --coverage",
     "e2e": "pnpm --filter @solarproof/web exec playwright test",
     "integration:test": "node scripts/local-soroban-integration.mjs",
+    "bridge:dev": "pnpm --filter @solarproof/bridge dev",
+    "bridge:build": "pnpm --filter @solarproof/bridge build",
+    "bridge:start": "pnpm --filter @solarproof/bridge start",
+    "bridge:test": "pnpm --filter @solarproof/bridge test",
     "clean": "turbo clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"
   },

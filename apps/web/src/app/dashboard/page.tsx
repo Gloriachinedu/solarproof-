@@ -227,6 +227,11 @@ function exportCsv(data: object[], filename: string) {
 export default function DashboardPage() {
   const [granularity, setGranularity] = useState<Period>('day')
   const [range, setRange] = useState<'30d' | '90d' | 'ytd' | 'all'>('30d')
+  const [reportMonth, setReportMonth] = useState<string>(currentMonth())
+  const [reportDownloading, setReportDownloading] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
+  // TODO: replace with the cooperative membership/role from the session context.
+  const isCooperative = true
   
   const dateParams = useMemo(() => {
     const now = new Date()
@@ -473,6 +478,75 @@ export default function DashboardPage() {
         </div>
         </ErrorBoundary>
       </section>
+
+      {/* Retirement Report */}
+      {isCooperative && (
+        <section aria-labelledby="retirement-report-heading" className="mb-8">
+          <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 id="retirement-report-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Retirement report
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Monthly retired certificates, buyers, and total kWh.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <label htmlFor="retirement-report-month" className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Month
+                </label>
+                <input
+                  id="retirement-report-month"
+                  type="month"
+                  value={reportMonth}
+                  onChange={(e) => setReportMonth(e.target.value)}
+                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                />
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={reportDownloading || !/^\d{4}-\d{2}$/.test(reportMonth)}
+                  className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-900"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                  {reportDownloading ? 'Downloading…' : 'Download retirement report (CSV)'}
+                </button>
+              </div>
+            </div>
+            {reportError && (
+              <p role="alert" className="mb-3 text-sm text-red-600 dark:text-red-400">{reportError}</p>
+            )}
+            {retirementReport && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border border-gray-100 p-4 dark:border-gray-800">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total kWh retired</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {retirementReport.total_kwh.toLocaleString()} kWh
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
+                    {retirementReport.total_certificates.toLocaleString()} certificates
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-100 p-4 dark:border-gray-800">
+                  <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Per-buyer breakdown</p>
+                  {retirementReport.buyers.length === 0 ? (
+                    <p className="text-xs text-gray-500 dark:text-gray-500">No retirements for this month.</p>
+                  ) : (
+                    <ul className="space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                      {retirementReport.buyers.map((b) => (
+                        <li key={b.buyer} className="flex items-center justify-between gap-2">
+                          <span className="truncate">{b.buyer}</span>
+                          <span className="font-semibold">{b.kwh.toLocaleString()} kWh</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Per-Meter Breakdown */}
       <section className="mb-8">
