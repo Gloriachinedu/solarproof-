@@ -7,6 +7,13 @@
 //! marked executable. Pending operations are stored on-chain and visible to
 //! anyone via `get_op`.
 //!
+//! ## Time-lock
+//! Critical operations (contract upgrade, minter change, etc.) are subject to
+//! a configurable time-lock delay (minimum 24 h). A critical op proposed via
+//! `propose_critical` enters a `pending` state and cannot be executed until
+//! `timelock_delay_seconds` have elapsed. During the lock period any signer
+//! with enough approvals (`threshold`) may cancel the op via `cancel_critical`.
+//!
 //! ## Signer rotation
 //! Rotating the signer set is itself an operation that must pass the current
 //! threshold — no single key can unilaterally replace the signers.
@@ -31,6 +38,12 @@ pub enum DataKey {
     Op(u32),
     /// Approval bitmap for an operation (bit i = signer i approved).
     Approvals(u32),
+    /// Time-lock delay in seconds for critical operations (min 86400 = 24 h).
+    TimelockDelay,
+    /// Critical operation keyed by op ID.
+    CriticalOp(u32),
+    /// Cancel-approval bitmap for a critical operation.
+    CancelApprovals(u32),
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +60,25 @@ pub struct Op {
     pub executed: bool,
 }
 
+/// Minimum time-lock delay: 24 hours in seconds.
+pub const MIN_TIMELOCK_SECONDS: u64 = 86_400;
+
+/// A pending critical operation subject to the time-lock delay.
+#[contracttype]
+#[derive(Clone)]
+pub struct CriticalOp {
+    /// Opaque call data describing the critical operation.
+    pub call_data: Bytes,
+    /// Ledger timestamp (seconds since Unix epoch) at which this op was proposed.
+    pub proposed_at: u64,
+    /// Ledger timestamp after which the op may be executed.
+    pub executable_after: u64,
+    /// True once the operation has been executed.
+    pub executed: bool,
+    /// True if the operation was cancelled.
+    pub cancelled: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -61,17 +93,23 @@ impl MultisigAdmin {
     /// # Panics
     /// * `"already initialized"` if called more than once.
     /// * `"threshold must be 1-3"` if threshold is out of range.
+    /// * `"timelock must be >= 86400"` if delay is below 24 h.
     pub fn initialize(
         env: Env,
         signer0: Address,
         signer1: Address,
         signer2: Address,
         threshold: u32,
+        timelock_delay_seconds: u64,
     ) {
         if env.storage().instance().has(&DataKey::Threshold) {
             panic!("already initialized");
         }
         assert!(threshold >= 1 && threshold <= 3, "threshold must be 1-3");
+        assert!(
+            timelock_delay_seconds >= MIN_TIMELOCK_SECONDS,
+            "timelock must be >= 86400"
+        );
         env.storage().instance().set(&DataKey::Signer(0), &signer0);
         env.storage().instance().set(&DataKey::Signer(1), &signer1);
         env.storage().instance().set(&DataKey::Signer(2), &signer2);
@@ -79,6 +117,9 @@ impl MultisigAdmin {
             .instance()
             .set(&DataKey::Threshold, &threshold);
         env.storage().instance().set(&DataKey::OpCount, &0_u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::TimelockDelay, &timelock_delay_seconds);
     }
 
     /// Propose a new operation. The proposer's approval is counted automatically.
@@ -310,6 +351,191 @@ impl MultisigAdmin {
         env.storage().instance().get(&DataKey::OpCount).unwrap_or(0)
     }
 
+    // ── Time-lock / critical operations ───────────────────────────────────────
+
+    /// Returns the configured time-lock delay in seconds.
+    pub fn timelock_delay(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TimelockDelay)
+            .expect("not initialized")
+    }
+
+    /// Propose a critical operation subject to the time-lock delay.
+    ///
+    /// The operation enters a `pending` state immediately but cannot be
+    /// executed until `timelock_delay_seconds` have elapsed. The proposer's
+    /// approval is counted automatically.
+    ///
+    /// # Returns
+    /// The new critical operation's ID.
+    ///
+    /// # Panics
+    /// * `"not a signer"` if `proposer` is not one of the three signers.
+    pub fn propose_critical(env: Env, proposer: Address, call_data: Bytes) -> u32 {
+        proposer.require_auth();
+        let idx = Self::signer_index(&env, &proposer);
+
+        let op_id: u32 = env.storage().instance().get(&DataKey::OpCount).unwrap_or(0);
+        let delay: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TimelockDelay)
+            .expect("not initialized");
+
+        let now = env.ledger().timestamp();
+        let critical_op = CriticalOp {
+            call_data,
+            proposed_at: now,
+            executable_after: now + delay,
+            executed: false,
+            cancelled: false,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::CriticalOp(op_id), &critical_op);
+
+        // Auto-approve for proposer
+        let bitmap: u32 = 1 << idx;
+        env.storage()
+            .instance()
+            .set(&DataKey::Approvals(op_id), &bitmap);
+        env.storage()
+            .instance()
+            .set(&DataKey::OpCount, &(op_id + 1));
+
+        env.events()
+            .publish((symbol_short!("crit_prop"),), (op_id, now + delay));
+
+        op_id
+    }
+
+    /// Approve a pending critical operation.
+    ///
+    /// # Panics
+    /// * `"not a signer"` if `signer` is not one of the three signers.
+    /// * `"critical op not found"` if `op_id` does not exist.
+    /// * `"already executed"` if the operation has already been executed.
+    /// * `"already cancelled"` if the operation was cancelled.
+    /// * `"already approved"` if this signer already approved.
+    pub fn approve_critical(env: Env, signer: Address, op_id: u32) {
+        signer.require_auth();
+        let idx = Self::signer_index(&env, &signer);
+
+        let op: CriticalOp = env
+            .storage()
+            .instance()
+            .get(&DataKey::CriticalOp(op_id))
+            .expect("critical op not found");
+        assert!(!op.executed, "already executed");
+        assert!(!op.cancelled, "already cancelled");
+
+        let mut bitmap: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Approvals(op_id))
+            .unwrap_or(0);
+        assert!((bitmap >> idx) & 1 == 0, "already approved");
+
+        bitmap |= 1 << idx;
+        env.storage()
+            .instance()
+            .set(&DataKey::Approvals(op_id), &bitmap);
+        env.events()
+            .publish((symbol_short!("crit_apr"),), (op_id, idx));
+    }
+
+    /// Execute a critical operation after the time-lock has expired.
+    ///
+    /// # Panics
+    /// * `"critical op not found"` if `op_id` does not exist.
+    /// * `"already executed"` if already executed.
+    /// * `"already cancelled"` if the op was cancelled.
+    /// * `"threshold not met"` if not enough signers have approved.
+    /// * `"timelock not expired"` if the lock period has not elapsed.
+    pub fn execute_critical(env: Env, op_id: u32) {
+        let mut op: CriticalOp = env
+            .storage()
+            .instance()
+            .get(&DataKey::CriticalOp(op_id))
+            .expect("critical op not found");
+        assert!(!op.executed, "already executed");
+        assert!(!op.cancelled, "already cancelled");
+
+        let bitmap: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Approvals(op_id))
+            .unwrap_or(0);
+        assert!(
+            Self::approval_count(bitmap) >= Self::threshold(&env),
+            "threshold not met"
+        );
+
+        let now = env.ledger().timestamp();
+        assert!(now >= op.executable_after, "timelock not expired");
+
+        op.executed = true;
+        env.storage()
+            .instance()
+            .set(&DataKey::CriticalOp(op_id), &op);
+        env.events()
+            .publish((symbol_short!("crit_exe"),), op_id);
+    }
+
+    /// Cancel a pending critical operation during the lock period.
+    ///
+    /// Any signer may initiate a cancellation; once `threshold` distinct signers
+    /// have called `cancel_critical` the op is marked cancelled.
+    ///
+    /// # Panics
+    /// * `"not a signer"` if `signer` is not one of the three signers.
+    /// * `"critical op not found"` if `op_id` does not exist.
+    /// * `"already executed"` if the operation has already been executed.
+    /// * `"already cancelled"` if already cancelled.
+    /// * `"already voted to cancel"` if this signer already voted.
+    pub fn cancel_critical(env: Env, signer: Address, op_id: u32) {
+        signer.require_auth();
+        let idx = Self::signer_index(&env, &signer);
+
+        let mut op: CriticalOp = env
+            .storage()
+            .instance()
+            .get(&DataKey::CriticalOp(op_id))
+            .expect("critical op not found");
+        assert!(!op.executed, "already executed");
+        assert!(!op.cancelled, "already cancelled");
+
+        let mut cancel_bitmap: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CancelApprovals(op_id))
+            .unwrap_or(0);
+        assert!((cancel_bitmap >> idx) & 1 == 0, "already voted to cancel");
+
+        cancel_bitmap |= 1 << idx;
+        env.storage()
+            .instance()
+            .set(&DataKey::CancelApprovals(op_id), &cancel_bitmap);
+
+        if Self::approval_count(cancel_bitmap) >= Self::threshold(&env) {
+            op.cancelled = true;
+            env.storage()
+                .instance()
+                .set(&DataKey::CriticalOp(op_id), &op);
+            env.events()
+                .publish((symbol_short!("crit_can"),), op_id);
+        }
+    }
+
+    /// Returns the critical operation with the given ID, or panics if not found.
+    pub fn get_critical_op(env: Env, op_id: u32) -> CriticalOp {
+        env.storage()
+            .instance()
+            .get(&DataKey::CriticalOp(op_id))
+            .expect("critical op not found")
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     fn threshold(env: &Env) -> u32 {
@@ -370,7 +596,7 @@ mod tests {
         let s0 = Address::generate(&env);
         let s1 = Address::generate(&env);
         let s2 = Address::generate(&env);
-        client.initialize(&s0, &s1, &s2, &2_u32);
+        client.initialize(&s0, &s1, &s2, &2_u32, &86_400_u64);
         (env, s0, s1, s2, client)
     }
 
@@ -396,7 +622,7 @@ mod tests {
     #[should_panic(expected = "already initialized")]
     fn test_double_initialize_panics() {
         let (env, s0, s1, s2, client) = setup();
-        client.initialize(&s0, &s1, &s2, &2_u32);
+        client.initialize(&s0, &s1, &s2, &2_u32, &86_400_u64);
         let _ = env;
     }
 
@@ -410,7 +636,7 @@ mod tests {
         let s0 = Address::generate(&env);
         let s1 = Address::generate(&env);
         let s2 = Address::generate(&env);
-        client.initialize(&s0, &s1, &s2, &0_u32);
+        client.initialize(&s0, &s1, &s2, &0_u32, &86_400_u64);
     }
 
     // ── propose ───────────────────────────────────────────────────────────────
@@ -499,7 +725,7 @@ mod tests {
         let s0 = Address::generate(&env);
         let s1 = Address::generate(&env);
         let s2 = Address::generate(&env);
-        client.initialize(&s0, &s1, &s2, &1_u32);
+        client.initialize(&s0, &s1, &s2, &1_u32, &86_400_u64);
         let op_id = client.propose(&s0, &call_data(&env));
         assert!(client.get_op(&op_id).executed);
     }
@@ -561,5 +787,129 @@ mod tests {
         // approve op1 with s2 → executes
         client.approve(&s2, &op1);
         assert!(client.get_op(&op1).executed);
+    }
+
+    // ── time-lock / critical ops ──────────────────────────────────────────────
+
+    #[test]
+    fn test_timelock_delay_stored_correctly() {
+        let (env, _s0, _s1, _s2, client) = setup();
+        assert_eq!(client.timelock_delay(), 86_400_u64);
+        let _ = env;
+    }
+
+    #[test]
+    #[should_panic(expected = "timelock must be >= 86400")]
+    fn test_initialize_rejects_short_timelock() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(MultisigAdmin, ());
+        let client = MultisigAdminClient::new(&env, &id);
+        let s0 = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        let s2 = Address::generate(&env);
+        // 1 hour < 24 h minimum
+        client.initialize(&s0, &s1, &s2, &2_u32, &3_600_u64);
+    }
+
+    #[test]
+    fn test_propose_critical_stores_pending_op() {
+        let (env, s0, _s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        let op = client.get_critical_op(&op_id);
+        assert!(!op.executed);
+        assert!(!op.cancelled);
+        assert_eq!(op.proposed_at, 1_000_000);
+        assert_eq!(op.executable_after, 1_000_000 + 86_400);
+    }
+
+    #[test]
+    #[should_panic(expected = "timelock not expired")]
+    fn test_execute_critical_before_lock_expires_panics() {
+        let (env, s0, s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        client.approve_critical(&s1, &op_id);
+        // Still within lock period
+        env.ledger().set_timestamp(1_000_000 + 86_399);
+        client.execute_critical(&op_id);
+    }
+
+    #[test]
+    fn test_execute_critical_after_lock_expires_succeeds() {
+        let (env, s0, s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        client.approve_critical(&s1, &op_id);
+        // Advance past the lock period
+        env.ledger().set_timestamp(1_000_000 + 86_400);
+        client.execute_critical(&op_id);
+        let op = client.get_critical_op(&op_id);
+        assert!(op.executed);
+    }
+
+    #[test]
+    fn test_cancel_critical_during_lock_period() {
+        let (env, s0, s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        // Two signers vote to cancel — meets threshold of 2
+        client.cancel_critical(&s0, &op_id);
+        client.cancel_critical(&s1, &op_id);
+        let op = client.get_critical_op(&op_id);
+        assert!(op.cancelled);
+        assert!(!op.executed);
+    }
+
+    #[test]
+    fn test_single_cancel_vote_does_not_cancel() {
+        let (env, s0, _s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        // Only one signer votes to cancel — threshold is 2
+        client.cancel_critical(&s0, &op_id);
+        let op = client.get_critical_op(&op_id);
+        assert!(!op.cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "already cancelled")]
+    fn test_execute_cancelled_critical_op_panics() {
+        let (env, s0, s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        client.approve_critical(&s1, &op_id);
+        // Cancel the op
+        client.cancel_critical(&s0, &op_id);
+        client.cancel_critical(&s1, &op_id);
+        // Advance past lock period and try to execute — should panic
+        env.ledger().set_timestamp(1_000_000 + 86_400);
+        client.execute_critical(&op_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "threshold not met")]
+    fn test_execute_critical_without_threshold_panics() {
+        let (env, s0, _s1, _s2, client) = setup();
+        env.ledger().set_timestamp(1_000_000);
+        let op_id = client.propose_critical(&s0, &call_data(&env));
+        // Only proposer has approved (1 of 2 required); advance past lock
+        env.ledger().set_timestamp(1_000_000 + 86_400);
+        client.execute_critical(&op_id);
+    }
+
+    #[test]
+    fn test_timelock_48h_is_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(MultisigAdmin, ());
+        let client = MultisigAdminClient::new(&env, &id);
+        let s0 = Address::generate(&env);
+        let s1 = Address::generate(&env);
+        let s2 = Address::generate(&env);
+        // 48 h delay
+        client.initialize(&s0, &s1, &s2, &2_u32, &172_800_u64);
+        assert_eq!(client.timelock_delay(), 172_800_u64);
     }
 }
