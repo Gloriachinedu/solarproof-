@@ -51,6 +51,36 @@ All contracts are written in Rust targeting the Soroban SDK 23.1.0 on Stellar.
 | No env var validation | API | Resolved in #79 |
 | Secrets in committed files | CI/repo | Resolved in #85 |
 
+## Internal audit remediation status
+
+The internal audit (`docs/security/SECURITY_AUDIT_REPORT.md`) identified 13 findings. All HIGH-severity findings have been remediated prior to this third-party engagement; the remediation details and verification notes are recorded in the updated `SECURITY_AUDIT_REPORT.md`. Auditors should independently verify each HIGH finding is closed, and may review the remaining Medium/Low/Informational findings at their discretion.
+
+## Audit logistics
+
+| Item | Value |
+|---|---|
+| Audit firm | _TBD — to be filled upon engagement_ |
+| Engagement date | _TBD_ |
+| Audit window | _TBD_ (target: 3–4 weeks from kickoff) |
+| Re-audit window | _TBD_ (target: 1–2 weeks after fixes) |
+| Point of contact | _TBD_ |
+
+### Timeline
+
+1. **Kickoff** — scope walkthrough and access to repository, tests, and internal audit report
+2. **Audit period** — review of all three contracts per the focus areas above
+3. **Draft findings** — preliminary report shared with the team
+4. **Remediation** — team addresses Critical/High findings
+5. **Re-audit** — auditor verifies fixes for Critical/High findings
+6. **Final report** — published in `docs/audits/`
+
+### Expected deliverables
+
+1. Findings report (Critical / High / Medium / Low / Informational)
+2. Recommendations for each finding
+3. Re-audit of any Critical/High fixes
+4. Final published report committed to `docs/audits/`
+
 ## Test coverage
 
 All contracts have unit tests covering:

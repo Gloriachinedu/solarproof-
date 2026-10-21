@@ -9,21 +9,38 @@
 #   https://www.zaproxy.org/docs/alerts/
 #   https://github.com/zaproxy/zap-extensions/tree/main/addOns/pscanrules
 #
-# --- False Positives (IGNORE) ---
+# --- Security Headers (FAIL) ---
+#
+# These headers are enforced in next.config.ts (see apps/web/next.config.ts,
+# securityHeaders) and must be present in production responses. Missing-header
+# findings are treated as failures so the ZAP scan only passes when all OWASP
+# recommended headers are actually present.
 #
 # 10038 Content Security Policy (CSP) Header Not Set
-#   False positive: CSP is enforced at the Vercel Edge layer via next.config.ts
-#   (see apps/web/next.config.ts, securityHeaders). ZAP scans the origin and
-#   does not see the edge-injected headers.
-10038	IGNORE
+10038	FAIL
 #
 # 10063 Permissions Policy Header Not Set
-#   False positive: Permissions-Policy is also injected at the Edge layer.
-10063	IGNORE
+10063	FAIL
 #
 # 10035 Strict-Transport-Security Header Not Set
-#   False positive: HSTS is enforced by Vercel globally for all deployments.
-10035	IGNORE
+10035	FAIL
+#
+# 10020 Missing Anti-clickjacking Header (X-Frame-Options)
+10020	FAIL
+#
+# 10021 X-Content-Type-Options Header Missing
+10021	FAIL
+#
+# 10036 Server Leaks Version Information via "Server" HTTP Response Header
+10036	FAIL
+#
+# 10037 Server Leaks Information via "X-Powered-By" HTTP Response Header
+10037	FAIL
+#
+# 10039 Content Security Policy (CSP) Header Not Set (Deprecated)
+10039	FAIL
+#
+# --- False Positives (IGNORE) ---
 #
 # 10054 Cookie Without SameSite Attribute
 #   False positive: Supabase auth cookies are set with SameSite=Lax server-side;

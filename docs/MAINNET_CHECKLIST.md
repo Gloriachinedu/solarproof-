@@ -8,11 +8,14 @@
 
 | # | Item | Owner | Status |
 |---|------|-------|--------|
-| 1.1 | Engage third-party auditor (scope: `energy_token`, `audit_registry`, `community_governance` — see [AUDIT_SCOPE.md](AUDIT_SCOPE.md)) | Lead | ☐ |
-| 1.2 | All Critical and High findings resolved and re-audited | Lead + Auditor | ☐ |
+| 1.1 | Engage third-party auditor (scope: `energy_token`, `audit_registry`, `community_governance` — see [AUDIT_SCOPE.md](AUDIT_SCOPE.md)) | Lead | 🔄 In progress |
+| 1.2 | All Critical and High findings from internal audit (`docs/security/SECURITY_AUDIT_REPORT.md`) resolved before third-party audit begins | Lead + Auditor | 🔄 In progress |
 | 1.3 | Medium findings triaged; accepted risks documented | Lead | ☐ |
-| 1.4 | Audit report published in `docs/audit/` | Lead | ☐ |
-| 1.5 | `anchor()` access control decision finalised (permissionless vs. restricted — see AUDIT_SCOPE.md §audit_registry) | Lead | ☐ |
+| 1.4 | Third-party audit report published in `docs/audits/` | Lead | ☐ |
+| 1.5 | Re-audit of remediated findings conducted | Lead + Auditor | ☐ |
+| 1.6 | `anchor()` access control decision finalised (permissionless vs. restricted — see AUDIT_SCOPE.md §audit_registry) | Lead | ☐ |
+
+> **Note:** The third-party audit report and any re-audit reports must be published under `docs/audits/` (not `docs/audit/`). All HIGH findings from the internal audit must be remediated before the third-party audit is engaged.
 
 ---
 
