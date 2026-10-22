@@ -1,15 +1,17 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Award, Leaf, Search, X, FileDown } from 'lucide-react'
+import { Award, Leaf, Search, X, FileDown, AlertTriangle, RotateCcw } from 'lucide-react'
 import { RetireModal } from '@/components/retire-modal'
 import { TransferModal } from '@/components/transfer-modal'
 import { useToast } from '@/components/toast'
 import { useWallet } from '@/hooks/useWallet'
+import { usePersistentFilters } from '@/hooks/usePersistentFilters'
 import { WalletGate } from '@/components/wallet-gate'
 import { TableRowSkeleton } from '@/components/skeleton'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 const MAX_BULK = 100
 
@@ -36,6 +38,93 @@ async function fetchCertificates(params: URLSearchParams): Promise<CertificatesR
   return res.json()
 }
 
+// ── Bulk Retire Confirmation Modal ─────────────────────────────────────────────
+
+function BulkRetireConfirmModal({
+  count,
+  onConfirm,
+  onClose,
+}: {
+  count: number
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bulk-retire-title"
+      aria-describedby="bulk-retire-desc"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        aria-hidden="true"
+        onClick={onClose}
+      />
+      {/* Panel */}
+      <div className="relative w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        {/* Header */}
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" aria-hidden="true" />
+          </div>
+          <div>
+            <h2
+              id="bulk-retire-title"
+              className="text-base font-semibold text-gray-900 dark:text-gray-100"
+            >
+              Retire {count} certificate{count !== 1 ? 's' : ''}?
+            </h2>
+            <p
+              id="bulk-retire-desc"
+              className="mt-1 text-sm text-gray-600 dark:text-gray-400"
+            >
+              This will permanently retire{' '}
+              <strong className="font-semibold text-gray-900 dark:text-gray-100">
+                {count} certificate{count !== 1 ? 's' : ''}
+              </strong>
+              . Retirement is <span className="font-semibold text-red-600 dark:text-red-400">irreversible</span> — retired
+              certificates cannot be transferred or used again.
+            </p>
+          </div>
+        </div>
+
+        {/* Warning box */}
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+          ⚠ This action cannot be undone. Please confirm you want to proceed.
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose() }}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          >
+            Retire {count} certificate{count !== 1 ? 's' : ''}
+          </button>
+        </div>
+
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          aria-label="Close dialog"
+          className="absolute right-4 top-4 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function CertificatesPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -47,41 +136,73 @@ export default function CertificatesPage() {
   const [transferring, setTransferring] = useState<Certificate | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRetiring, setBulkRetiring] = useState(false)
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
 
-  // Read filter state from URL
-  const q = searchParams.get('q') ?? ''
-  const status = searchParams.get('status') ?? ''
-  const dateFrom = searchParams.get('date_from') ?? ''
-  const dateTo = searchParams.get('date_to') ?? ''
+  // Persistent filter state (per-user, restored from localStorage across sessions)
+  const { filters, setFilter, resetFilters, isHydrated } = usePersistentFilters(
+    'certificates',
+    {
+      q: '',
+      status: '',
+      date_from: '',
+      date_to: '',
+      meter_id: '',
+    },
+    address
+  )
+
+  const q = filters.q
+  const status = filters.status
+  const dateFrom = filters.date_from
+  const dateTo = filters.date_to
+  const meterId = filters.meter_id
 
   // Local draft state for the search input (debounced via form submit)
   const [draft, setDraft] = useState(q)
 
-  function pushParams(updates: Record<string, string>) {
-    const params = new URLSearchParams(searchParams.toString())
-    for (const [k, v] of Object.entries(updates)) {
-      if (v) params.set(k, v)
-      else params.delete(k)
+  // Keep the search draft in sync when persisted state is restored
+  useEffect(() => {
+    setDraft(q)
+  }, [q])
+
+  // Mirror persisted filters into the URL so links stay shareable
+  useEffect(() => {
+    if (!isHydrated) return
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (status) params.set('status', status)
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    if (meterId) params.set('meter_id', meterId)
+    const next = params.toString()
+    const current = searchParams.toString()
+    if (next !== current) {
+      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
     }
-    params.delete('cursor') // reset pagination on filter change
-    router.push(`${pathname}?${params.toString()}`)
+  }, [isHydrated, q, status, dateFrom, dateTo, meterId, pathname, router, searchParams])
+
+  function pushParams(updates: Record<string, string>) {
+    for (const [k, v] of Object.entries(updates)) {
+      setFilter(k as keyof typeof filters, v)
+    }
   }
 
   function clearFilters() {
     setDraft('')
-    router.push(pathname)
+    resetFilters()
   }
 
-  const hasFilters = q || status || dateFrom || dateTo
+  const hasFilters = q || status || dateFrom || dateTo || meterId
 
   const queryParams = new URLSearchParams()
   if (q) queryParams.set('q', q)
   if (status) queryParams.set('status', status)
   if (dateFrom) queryParams.set('date_from', dateFrom)
   if (dateTo) queryParams.set('date_to', dateTo)
+  if (meterId) queryParams.set('meter_id', meterId)
 
   const { data: response, isLoading, error } = useQuery({
-    queryKey: ['certificates', q, status, dateFrom, dateTo],
+    queryKey: ['certificates', q, status, dateFrom, dateTo, meterId],
     queryFn: () => fetchCertificates(queryParams),
   })
 
@@ -93,7 +214,7 @@ export default function CertificatesPage() {
       pushParams({ q: draft })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [draft, searchParams]
+    [draft, setFilter]
   )
 
   async function handleTransfer(toAddress: string) {
@@ -232,12 +353,28 @@ export default function CertificatesPage() {
               id="status-filter"
               value={status}
               onChange={(e) => pushParams({ status: e.target.value })}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             >
               <option value="">All</option>
               <option value="active">Active</option>
               <option value="retired">Retired</option>
             </select>
+          </div>
+
+          {/* Meter filter */}
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="meter-filter" className="text-xs text-gray-500 dark:text-gray-400">
+              Meter
+            </label>
+            <input
+              id="meter-filter"
+              type="text"
+              value={meterId}
+              onChange={(e) => pushParams({ meter_id: e.target.value })}
+              placeholder="Meter ID…"
+              aria-label="Filter by meter ID"
+              className="w-36 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            />
           </div>
 
           {/* Date range */}
@@ -251,7 +388,7 @@ export default function CertificatesPage() {
               value={dateFrom}
               onChange={(e) => pushParams({ date_from: e.target.value })}
               aria-label="Filter from date"
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           <div className="flex items-center gap-1.5">
@@ -264,19 +401,19 @@ export default function CertificatesPage() {
               value={dateTo}
               onChange={(e) => pushParams({ date_to: e.target.value })}
               aria-label="Filter to date"
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
 
-          {/* Clear filters */}
+          {/* Reset filters (clears persisted state) */}
           {hasFilters && (
             <button
               onClick={clearFilters}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              aria-label="Clear all filters"
+              aria-label="Reset all filters and clear saved preferences"
             >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Clear
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              Reset filters
             </button>
           )}
 
@@ -294,7 +431,7 @@ export default function CertificatesPage() {
               {selected.size} certificate{selected.size !== 1 ? 's' : ''} selected
             </span>
             <button
-              onClick={handleBulkRetire}
+              onClick={() => setShowBulkConfirm(true)}
               disabled={bulkRetiring || !connected}
               className="ms-auto rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -316,6 +453,7 @@ export default function CertificatesPage() {
           </p>
         )}
 
+        <ErrorBoundary inline label="Certificate table">
         <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
           <div className="overflow-x-auto">
             <table
@@ -331,7 +469,7 @@ export default function CertificatesPage() {
                       aria-label="Select all active certificates"
                       checked={activeData.length > 0 && activeData.every((c) => selected.has(c.id))}
                       onChange={toggleSelectAll}
-                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus-visible:ring-green-500"
                     />
                   </th>
                   {['Certificate ID', 'Meter ID', 'kWh', 'Issued', 'Status', 'Action'].map((h) => (
@@ -362,7 +500,7 @@ export default function CertificatesPage() {
                             aria-label={`Select certificate ${cert.id.slice(0, 8)}`}
                             checked={selected.has(cert.id)}
                             onChange={() => toggleSelect(cert.id)}
-                            className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            className="h-4 w-4 rounded border-gray-300 text-green-600 focus-visible:ring-green-500"
                           />
                         )}
                       </td>
@@ -433,6 +571,7 @@ export default function CertificatesPage() {
             </table>
           </div>
         </div>
+        </ErrorBoundary>
 
         {retiring && (
           <RetireModal
@@ -449,6 +588,14 @@ export default function CertificatesPage() {
             kwh={transferring.kwh}
             onConfirm={handleTransfer}
             onClose={() => setTransferring(null)}
+          />
+        )}
+
+        {showBulkConfirm && (
+          <BulkRetireConfirmModal
+            count={selected.size}
+            onConfirm={handleBulkRetire}
+            onClose={() => setShowBulkConfirm(false)}
           />
         )}
       </div>

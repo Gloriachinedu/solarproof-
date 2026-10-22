@@ -161,8 +161,10 @@ Resource limits per service (defined in `docker-compose.yml`):
 node scripts/gen-meter-key.mjs
 
 # Send a signed reading
-node scripts/send-reading.mjs --kwh 12.5 --meter-key ./meter-key.json
+node scripts/send-reading.mjs --kwh 12.5 --key ./meter-key.json
 ```
+
+> **Building real hardware?** See the [Hardware Meter Integration Guide](docs/HARDWARE_METER_INTEGRATION_GUIDE.md) for the full onboarding quick-start, Ed25519 signing protocol, API specification, and meter certification checklist.
 
 ---
 
@@ -243,3 +245,8 @@ Apache-2.0 — See [LICENSE](LICENSE).
 ---
 
 *Built on Stellar · SolarProof Contributors 2026*
+
+## Handsoff notes
+
+<!-- handsoff-issue-129 -->
+- #129: [Product] Meter health monitoring — alert on readings gap

@@ -84,5 +84,114 @@
     "disconnectedTitle": "Billetera desconectada",
     "disconnectedDescription": "Tu sesión de billetera ha expirado. Vuelve a conectarte para continuar.",
     "disconnectedHint": "Asegúrate de que tu extensión Freighter esté desbloqueada y la cuenta correcta esté seleccionada."
+  },
+  "dashboard": {
+    "title": "Panel",
+    "subtitle": "Resumen de tu actividad en la cooperativa SolarProof.",
+    "totalEnergy": "Energía Total",
+    "activeMeters": "Medidores Activos",
+    "certificatesIssued": "Certificados Emitidos",
+    "certificatesRetired": "Certificados Retirados",
+    "recentReadings": "Lecturas Recientes",
+    "recentCertificates": "Certificados Recientes",
+    "noReadings": "Aún no hay lecturas registradas.",
+    "noCertificates": "Aún no hay certificados emitidos.",
+    "viewAll": "Ver todo",
+    "loading": "Cargando…",
+    "error": "No se pudieron cargar los datos del panel."
+  },
+  "meters": {
+    "title": "Medidores",
+    "subtitle": "Gestiona los medidores de energía de tu cooperativa.",
+    "addMeter": "Agregar Medidor",
+    "noMeters": "Aún no hay medidores registrados.",
+    "loading": "Cargando medidores…",
+    "error": "No se pudieron cargar los medidores.",
+    "table": {
+      "id": "ID",
+      "name": "Nombre",
+      "location": "Ubicación",
+      "status": "Estado",
+      "lastReading": "Última Lectura",
+      "actions": "Acciones"
+    },
+    "status": {
+      "active": "Activo",
+      "inactive": "Inactivo",
+      "pending": "Pendiente"
+    },
+    "form": {
+      "heading": "Agregar Medidor",
+      "name": "Nombre",
+      "namePlaceholder": "Nombre del medidor",
+      "location": "Ubicación",
+      "locationPlaceholder": "Ubicación del medidor",
+      "submit": "Agregar Medidor",
+      "submitting": "Agregando…",
+      "success": "¡Medidor agregado con éxito!",
+      "errors": {
+        "nameRequired": "El nombre es obligatorio.",
+        "locationRequired": "La ubicación es obligatoria."
+      }
+    }
+  },
+  "certificates": {
+    "title": "Certificados",
+    "subtitle": "Certificados de energía emitidos y retirados.",
+    "noCertificates": "Aún no hay certificados.",
+    "loading": "Cargando certificados…",
+    "error": "No se pudieron cargar los certificados.",
+    "retire": "Retirar",
+    "retiring": "Retirando…",
+    "retireSuccess": "¡Certificado retirado con éxito!",
+    "retireError": "No se pudo retirar el certificado.",
+    "table": {
+      "id": "ID",
+      "energy": "Energía",
+      "issued": "Emitido",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "status": {
+      "active": "Activo",
+      "retired": "Retirado"
+    }
+  },
+  "admin": {
+    "title": "Administración",
+    "subtitle": "Herramientas administrativas de la cooperativa.",
+    "unauthorized": "No tienes permiso para acceder a esta página.",
+    "loading": "Cargando…",
+    "error": "No se pudieron cargar las herramientas de administración."
+  },
+  "common": {
+    "loading": "Cargando…",
+    "error": "Algo salió mal.",
+    "retry": "Reintentar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "close": "Cerrar",
+    "back": "Volver",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "search": "Buscar",
+    "noResults": "No se encontraron resultados.",
+    "required": "Obligatorio",
+    "optional": "Opcional"
+  },
+  "errors": {
+    "generic": "Ocurrió un error inesperado. Inténtalo de nuevo.",
+    "network": "Error de red. Verifica tu conexión e inténtalo de nuevo.",
+    "notFound": "Página no encontrada.",
+    "unauthorized": "No autorizado.",
+    "walletNotConnected": "Billetera no conectada."
+  },
+  "footer": {
+    "copyright": "© {year} SolarProof. Todos los derechos reservados.",
+    "privacy": "Privacidad",
+    "terms": "Términos",
+    "docs": "Documentación"
   }
 }

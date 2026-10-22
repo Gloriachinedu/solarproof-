@@ -32,6 +32,91 @@ env:
   P95_REGRESSION_PERCENT: 20
 
 jobs:
+  verify-rate-limit:
+    name: Verify rate limit enforcement (/api/verify)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      - name: Run verify rate-limit test
+        id: run_verify_test
+        run: |
+          # Burst more than 30 requests within a minute and assert 429s are returned
+          k6 run tests/load/verify-rate-limit.js \
+            -e API_URL=${{ github.event.inputs.api_url || 'https://solarproof-staging.vercel.app' }} \
+            --summary-export=verify-rate-limit-summary.json || true
+
+      - name: Enforce 429 threshold
+        id: enforce_threshold
+        run: |
+          RESULT=$(python3 -c "
+          import json, sys
+          try:
+              with open('verify-rate-limit-summary.json') as f:
+                  data = json.load(f)
+              metrics = data.get('metrics', {})
+              rate_limited = metrics.get('verify_rate_limited', {}).get('count')
+              if rate_limited is None:
+                  rate_limited = metrics.get('checks', {}).get('passes')
+              if rate_limited is None:
+                  print('N/A')
+                  sys.exit(0)
+              print(int(rate_limited))
+          except Exception as e:
+              print(f'ERROR: {e}', file=sys.stderr)
+              print('N/A')
+          " 2>&1)
+
+          echo "rate_limited=${RESULT}" >> "$GITHUB_OUTPUT"
+
+          if [ "$RESULT" = "N/A" ] || [ "$RESULT" = "" ]; then
+            echo "::error::Could not parse rate-limit results from k6 summary — cannot confirm 30 req/min enforcement"
+            exit 1
+          fi
+
+          if [ "$RESULT" -lt 1 ]; then
+            echo "::error::No 429 responses observed — rate limit (30 req/min per IP) is NOT enforced"
+            exit 1
+          fi
+
+          echo "✅ Rate limit enforced: observed ${RESULT} rate-limited (429) responses"
+
+      - name: Add Rate Limit Summary
+        if: always()
+        run: |
+          RATE_LIMITED="${{ steps.enforce_threshold.outputs.rate_limited }}"
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## Verify Rate Limit Test
+
+          | Metric | Value |
+          |---|---|
+          | Target | ${{ github.event.inputs.api_url || 'https://solarproof-staging.vercel.app' }} |
+          | Expected limit | 30 req/min per IP |
+          | 429 responses observed | ${RATE_LIMITED:-N/A} |
+
+          > Abuse protection documented in [docs/ABUSE_PROTECTION.md](../../docs/ABUSE_PROTECTION.md).
+          EOF
+
+      - name: Upload verify rate-limit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-rate-limit-results-${{ github.run_id }}
+          path: verify-rate-limit-summary.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   load-test:
     name: k6 load test (${{ github.event.inputs.scenario || 'baseline' }})
     runs-on: ubuntu-latest

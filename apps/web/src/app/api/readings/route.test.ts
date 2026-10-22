@@ -21,10 +21,15 @@ vi.mock('@/lib/stellar', () => ({
 }))
 vi.mock('@/lib/cache', () => ({
   invalidateCert: vi.fn().mockResolvedValue(undefined),
+  getCachedMeterRevocation: vi.fn().mockResolvedValue(null),
+  setCachedMeterRevocation: vi.fn().mockResolvedValue(undefined),
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, retryAfter: 0 }),
 }))
 vi.mock('@/lib/queue', () => ({
   enqueue: vi.fn().mockResolvedValue('job-id-test'),
+}))
+vi.mock('@/lib/operator-suspension', () => ({
+  isOperatorSuspended: vi.fn().mockResolvedValue(false),
 }))
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: vi.fn().mockReturnValue({ allowed: true, resetAt: Date.now() + 60_000, remaining: 9 }),
@@ -86,9 +91,10 @@ function makeRequest(body: unknown, apiKey = 'mk_test_api_key') {
 }
 
 function mockDb(meter: unknown) {
-  const meterSingle = vi.fn().mockResolvedValue({ data: meter, error: null })
+  const meterData = meter ? { active: true, revoked_at: null, api_key_expires_at: null, ...(meter as object) } : null
+  const meterSingle = vi.fn().mockResolvedValue({ data: meterData, error: null })
   const coopSingle = vi.fn().mockResolvedValue({ data: { admin_address: 'GADMIN' }, error: null })
-  const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single: meterSingle }) }) })
+  const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single: meterSingle }) })
   const insertSingle = vi.fn().mockResolvedValue({ data: { id: 'reading-id-1' }, error: null })
   const insert = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single: insertSingle }) })
 
@@ -120,11 +126,21 @@ describe('POST /api/readings', () => {
 
   it('returns 400 when body is not JSON', async () => {
     const req = { json: () => Promise.reject(new Error('bad json')), headers: { get: () => null } } as unknown as Parameters<typeof POST>[0]
-    expect((await POST(req)).status).toBe(400)
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toHaveProperty('error')
+    expect(body).toHaveProperty('code')
+    expect(typeof body.error).toBe('string')
   })
 
   it('returns 400 when meter_id is missing', async () => {
-    expect((await POST(makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128), nonce: 'n' }))).status).toBe(400)
+    const res = await POST(makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128), nonce: 'n' }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toHaveProperty('error')
+    expect(body).toHaveProperty('code')
+    expect(body).toHaveProperty('details')
   })
 
   it('returns 400 when meter_id is not a UUID', async () => {
@@ -179,6 +195,27 @@ describe('POST /api/readings', () => {
     expect((await POST(makeRequest(await makeBody(privKey)))).status).toBe(404)
   })
 
+  it('returns 403 for a revoked meter before verifying its signature', async () => {
+    const { pubKeyHex } = await makeKeypair()
+    mockDb({
+      id: METER_ID,
+      pubkey_hex: pubKeyHex,
+      cooperative_id: 'coop-1',
+      api_key: 'mk_test_api_key',
+      active: false,
+      revoked_at: new Date().toISOString(),
+    })
+    const response = await POST(makeRequest({
+      meter_id: METER_ID,
+      kwh: KWH,
+      timestamp: Math.floor(Date.now() / 1000),
+      signature_hex: '0'.repeat(128),
+      nonce: 'revoked-meter-nonce',
+    }))
+
+    expect(response.status).toBe(403)
+  })
+
   // ── 401 for invalid signature ──────────────────────────────────────────────
 
   it('returns 401 when signature is signed by a different key', async () => {
@@ -221,6 +258,8 @@ describe('POST /api/readings', () => {
     expect(payload.readingHashHex).toBe(
       computeReadingHash(METER_ID, kwhToStroops(KWH), BigInt(body.timestamp)).toString('hex')
     )
+    expect(payload.kwh).toBe(KWH)
+    expect(kwhToStroops(KWH)).toBe(125_000_000n)
   })
 
   // ── API key validation ─────────────────────────────────────────────────────
@@ -239,5 +278,23 @@ describe('POST /api/readings', () => {
     const res = await POST(makeRequest(await makeBody(privKey), 'mk_wrong_key'))
     expect(res.status).toBe(401)
     expect((await res.json()).error).toMatch(/api key/i)
+  })
+
+  // ── error schema conformance ───────────────────────────────────────────────
+
+  it('all error responses conform to { error: string, code: string } schema', async () => {
+    const cases = [
+      // 400 validation
+      makeRequest({ kwh: 1, timestamp: Math.floor(Date.now() / 1000), signature_hex: 'a'.repeat(128), nonce: 'n' }),
+      // 400 invalid JSON treated as null body
+      { json: () => Promise.resolve(null), headers: { get: () => null } } as unknown as Parameters<typeof POST>[0],
+    ]
+
+    for (const req of cases) {
+      const res = await POST(req)
+      const body = await res.json()
+      expect(typeof body.error).toBe('string')
+      expect(typeof body.code).toBe('string')
+    }
   })
 })

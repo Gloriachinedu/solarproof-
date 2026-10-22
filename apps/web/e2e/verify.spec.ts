@@ -73,3 +73,69 @@ test('submits an invalid certificate ID and shows an error state', async ({ page
   ])
   await expect(page.locator('div[role="alert"]', { hasText: 'Certificate not found' })).toBeVisible()
 })
+
+test.describe('kiosk mode', () => {
+  test('activates kiosk layout with full-screen container and enlarged touch targets', async ({ page }) => {
+    await page.goto('/verify?kiosk=1')
+
+    const kioskContainer = page.locator('[data-kiosk="true"]')
+    await expect(kioskContainer).toBeVisible()
+
+    const verifyButton = page.locator('button:has-text("Verify")')
+    await expect(verifyButton).toBeVisible()
+
+    const box = await verifyButton.boundingBox()
+    expect(box).not.toBeNull()
+    // Touch-friendly target: at least 48x48 CSS pixels (WCAG 2.1 AA / 2.5.5).
+    expect(box!.height).toBeGreaterThanOrEqual(48)
+    expect(box!.width).toBeGreaterThanOrEqual(48)
+  })
+
+  test('auto-resets to home state after 60s inactivity and clears the query', async ({ page }) => {
+    await page.clock.install()
+    await page.goto('/verify?kiosk=1')
+
+    await expect(page.locator('[data-kiosk="true"]')).toBeVisible()
+
+    await page.fill('input[name="certificateId"]', 'valid-certificate-id')
+    await Promise.all([
+      page.waitForResponse('**/api/verify**'),
+      page.click('button:has-text("Verify")'),
+    ])
+    await expect(page.locator('text=Certificate verified successfully.')).toBeVisible()
+
+    // Advance past the 60s inactivity window.
+    await page.clock.fastForward(61_000)
+
+    await expect(page.locator('text=Certificate verified successfully.')).toBeHidden()
+    await expect(page.locator('input[name="certificateId"]')).toHaveValue('')
+    await expect(page).toHaveURL(/\/verify$/)
+  })
+
+  test('interacting with the page resets the inactivity timer', async ({ page }) => {
+    await page.clock.install()
+    await page.goto('/verify?kiosk=1')
+
+    await expect(page.locator('[data-kiosk="true"]')).toBeVisible()
+
+    await page.fill('input[name="certificateId"]', 'valid-certificate-id')
+    await Promise.all([
+      page.waitForResponse('**/api/verify**'),
+      page.click('button:has-text("Verify")'),
+    ])
+    await expect(page.locator('text=Certificate verified successfully.')).toBeVisible()
+
+    // Wait most of the inactivity window, then interact to reset the timer.
+    await page.clock.fastForward(50_000)
+    await page.click('body')
+
+    // Another 50s should not trigger the reset because the timer restarted.
+    await page.clock.fastForward(50_000)
+    await expect(page.locator('text=Certificate verified successfully.')).toBeVisible()
+
+    // Past the full 60s since the last interaction, the reset should occur.
+    await page.clock.fastForward(11_000)
+    await expect(page.locator('text=Certificate verified successfully.')).toBeHidden()
+    await expect(page).toHaveURL(/\/verify$/)
+  })
+})

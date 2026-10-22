@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Search, CheckCircle, XCircle, Shield, ExternalLink, Copy } from 'lucide-react'
+import { Search, CheckCircle, XCircle, Shield, ExternalLink, Copy, Download } from 'lucide-react'
 import { SectionSkeleton } from '@/components/skeleton'
 import { CopyableText } from '@/components/copy-button'
 import { writeToClipboard } from '@/components/copy-button'
@@ -99,15 +99,85 @@ function buildSteps(data: ChainOfCustody): Step[] {
   ]
 }
 
+const KIOSK_INACTIVITY_MS = 60_000
+
 export default function VerifyPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const kiosk = searchParams.get('kiosk') === '1'
   const [query, setQuery] = useState(searchParams.get('id') ?? '')
   const [result, setResult] = useState<ChainOfCustody | null>(null)
   const [pageError, setPageError] = useState<Error | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const { pushToast } = useToast()
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const resetKiosk = useCallback(() => {
+    setQuery('')
+    setResult(null)
+    setPageError(null)
+    setLoading(false)
+    setCopied(false)
+    setDownloadError(null)
+    router.replace('/verify?kiosk=1')
+  }, [router])
+
+  useEffect(() => {
+    if (!kiosk) return
+
+    const clearTimer = () => {
+      if (inactivityTimer.current) {
+        clearTimeout(inactivityTimer.current)
+        inactivityTimer.current = null
+      }
+    }
+
+    const armTimer = () => {
+      clearTimer()
+      inactivityTimer.current = setTimeout(resetKiosk, KIOSK_INACTIVITY_MS)
+    }
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'touchstart', 'keydown', 'input']
+    events.forEach((evt) => window.addEventListener(evt, armTimer, { passive: true }))
+    armTimer()
+
+    return () => {
+      events.forEach((evt) => window.removeEventListener(evt, armTimer))
+      clearTimer()
+    }
+  }, [kiosk, resetKiosk])
+
+  async function handleDownloadAudit() {
+    if (!result) return
+    const certId = result.certificate.id
+    setDownloadError(null)
+    try {
+      const res = await fetch(`/api/audit-log/export?certificate_id=${encodeURIComponent(certId)}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const msg = body.error ?? 'Export failed. Please try again.'
+        setDownloadError(msg)
+        pushToast({ variant: 'error', title: 'Download failed', description: msg })
+        return
+      }
+      const blob = await res.blob()
+      const today = new Date().toISOString().slice(0, 10)
+      const filename = `solarproof-audit-${certId}-${today}.csv`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      pushToast({ variant: 'success', title: 'Audit trail downloaded', description: filename })
+    } catch {
+      const msg = 'Network error — could not download audit trail.'
+      setDownloadError(msg)
+      pushToast({ variant: 'error', title: 'Download failed', description: msg })
+    }
+  }
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault()
@@ -150,15 +220,36 @@ export default function VerifyPage() {
   const steps = result ? buildSteps(result) : null
   const allPass = steps?.every((s) => s.status !== 'fail')
 
+  const containerClass = kiosk
+    ? 'min-h-screen w-full px-6 py-10 sm:px-10 sm:py-14'
+    : 'mx-auto max-w-3xl px-4 py-8 sm:py-10'
+  const headingClass = kiosk
+    ? 'text-3xl font-bold text-gray-900 dark:text-gray-100 sm:text-4xl'
+    : 'text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl'
+  const subheadingClass = kiosk
+    ? 'text-base text-gray-500 dark:text-gray-400 sm:text-lg'
+    : 'text-sm text-gray-500 dark:text-gray-400'
+  const inputClass = kiosk
+    ? 'min-h-[56px] flex-1 rounded-xl border border-gray-300 bg-white px-5 py-3 text-lg text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-4 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500'
+    : 'flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500'
+  const submitClass = kiosk
+    ? 'flex min-h-[56px] min-w-[56px] items-center justify-center gap-2 rounded-xl bg-yellow-400 px-6 py-3 text-lg font-semibold text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+    : 'flex items-center justify-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:py-10">
+    <div className={containerClass}>
+      {kiosk && (
+        <p role="status" aria-live="polite" className="sr-only">
+          Kiosk mode active. The screen will automatically reset after 60 seconds of inactivity.
+        </p>
+      )}
       <header className="mb-8 flex items-center gap-3">
-        <Shield className="h-7 w-7 shrink-0 text-yellow-500" aria-hidden="true" />
+        <Shield className={`shrink-0 text-yellow-500 ${kiosk ? 'h-10 w-10' : 'h-7 w-7'}`} aria-hidden="true" />
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl">
+          <h1 className={headingClass}>
             Certificate Verifier
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className={subheadingClass}>
             No login required. Enter a certificate ID, reading hash, or transaction hash.
           </p>
         </div>
@@ -175,15 +266,15 @@ export default function VerifyPage() {
             placeholder="Certificate ID, reading hash, or tx hash…"
             aria-required="true"
             autoComplete="off"
-            className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+            className={inputClass}
           />
           <button
             type="submit"
             disabled={loading}
             aria-busy={loading}
-            className="flex items-center justify-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            className={submitClass}
           >
-            <Search className="h-4 w-4" aria-hidden="true" />
+            <Search className={kiosk ? 'h-5 w-5' : 'h-4 w-4'} aria-hidden="true" />
             {loading ? 'Verifying…' : 'Verify'}
           </button>
         </div>
@@ -238,16 +329,18 @@ export default function VerifyPage() {
                 {allPass ? 'Full chain of custody confirmed' : 'Partial verification — see steps below'}
               </span>
             </div>
-            <button
-              onClick={copyLink}
-              aria-label="Copy shareable verification link"
-              aria-pressed={copied}
-              title="Copy shareable link"
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-white/60 dark:hover:bg-gray-800/60"
-            >
-              <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-              <span aria-live="polite">{copied ? 'Copied!' : 'Share'}</span>
-            </button>
+            {!kiosk && (
+              <button
+                onClick={copyLink}
+                aria-label="Copy shareable verification link"
+                aria-pressed={copied}
+                title="Copy shareable link"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-white/60 dark:hover:bg-gray-800/60"
+              >
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                <span aria-live="polite">{copied ? 'Copied!' : 'Share'}</span>
+              </button>
+            )}
           </div>
 
           {/* Stepper */}
@@ -331,6 +424,27 @@ export default function VerifyPage() {
               <Row label="Ed25519 verified" value="✓ Valid" />
             </Section>
           )}
+
+          {/* Download audit trail */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleDownloadAudit}
+              aria-label={`Download audit trail for certificate ${result.certificate.id} as CSV`}
+              className={
+                kiosk
+                  ? 'inline-flex min-h-[56px] items-center gap-2 self-start rounded-xl border border-gray-300 bg-white px-6 py-3 text-lg font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+                  : 'inline-flex items-center gap-2 self-start rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+              }
+            >
+              <Download className={kiosk ? 'h-5 w-5' : 'h-4 w-4'} aria-hidden="true" />
+              Download audit trail
+            </button>
+            {downloadError && (
+              <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+                {downloadError}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

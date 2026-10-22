@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import type { Database } from './database.types'
 import { env } from '@/env'
+import { redis } from './redis'
+import { auditLog } from './audit'
 
 /**
  * Create a Supabase client that validates the caller's JWT (anon key, RLS enforced).
@@ -39,18 +41,60 @@ function extractJti(token: string): string | null {
   }
 }
 
+// Revocation cache TTL (seconds) — minimizes DB queries on hot auth paths.
+const REVOCATION_CACHE_TTL = 30
+
+function revocationCacheKey(jti: string): string {
+  return `revoked_token:${jti}`
+}
+
+/**
+ * Read a JTI's revocation status from the Redis cache.
+ * Returns `null` on a cache miss (or if Redis is unavailable).
+ */
+async function getCachedRevocation(jti: string): Promise<boolean | null> {
+  try {
+    const cached = await redis.get(revocationCacheKey(jti))
+    if (cached === null || cached === undefined) return null
+    return cached === '1' || cached === 'true' || cached === 1 || cached === true
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Cache a JTI's revocation status (positive or negative) for 30s.
+ * Failures are swallowed — the DB remains the source of truth.
+ */
+async function setCachedRevocation(jti: string, revoked: boolean): Promise<void> {
+  try {
+    await redis.set(revocationCacheKey(jti), revoked ? '1' : '0', {
+      ex: REVOCATION_CACHE_TTL,
+    })
+  } catch {
+    // Ignore cache write failures.
+  }
+}
+
 /**
  * Check whether a token's JTI appears in the revocation list.
+ * Consults the Redis cache first; on a miss queries the DB and caches
+ * both positive and negative results for 30s.
  * Returns true if the token has been revoked.
  */
 async function isRevoked(jti: string): Promise<boolean> {
+  const cached = await getCachedRevocation(jti)
+  if (cached !== null) return cached
+
   const db = createServiceClient()
   const { data } = await db
     .from('revoked_tokens')
     .select('jti')
     .eq('jti', jti)
     .maybeSingle()
-  return data !== null
+  const revoked = data !== null
+  await setCachedRevocation(jti, revoked)
+  return revoked
 }
 
 /**
@@ -63,25 +107,44 @@ export async function revokeToken(accessToken: string): Promise<void> {
   const db = createServiceClient()
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString()
   await db.from('revoked_tokens').upsert({ jti, expires_at: expiresAt })
+  // Invalidate/refresh the cache so logout takes effect immediately.
+  await setCachedRevocation(jti, true)
 }
 
+// Cookie name that /api/auth/login sets with the access token.
+// Must stay in sync with the name used in the login/logout route handlers.
+const ACCESS_TOKEN_COOKIE = 'sp_access_token'
+
 /**
- * Extract and validate the Bearer JWT from the `Authorization` header.
+ * Extract and validate the Bearer JWT from either:
+ *   1. The `sp_access_token` HttpOnly cookie (set by /api/auth/login), or
+ *   2. The `Authorization: Bearer <token>` header (for API / non-browser clients).
+ *
+ * Cookie auth is preferred — it prevents JavaScript from accessing the token
+ * and mitigates XSS token theft (issue #113).
+ *
  * Also checks the revocation list before accepting the token.
  */
 export async function requireAuth(
   req: NextRequest
 ): Promise<{ user: { id: string; email?: string }; accessToken: string; cooperativeId: string } | NextResponse> {
+  // Prefer HttpOnly cookie over Authorization header.
+  const cookieToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value ?? null
   const authHeader = req.headers.get('authorization') ?? ''
-  const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const accessToken = cookieToken ?? headerToken
 
   if (!accessToken) {
     return NextResponse.json({ error: 'Missing Authorization header' }, { status: 401 })
   }
 
-  // Check revocation list before hitting Supabase
+  // Check revocation list (Redis-cached) before hitting Supabase
   const jti = extractJti(accessToken)
   if (jti && (await isRevoked(jti))) {
+    await auditLog({
+      action: 'auth.revoked_token',
+      metadata: { jti, path: req.nextUrl.pathname },
+    })
     return NextResponse.json({ error: 'Token has been revoked' }, { status: 401 })
   }
 

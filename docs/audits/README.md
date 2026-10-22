@@ -1,154 +1,44 @@
-# SolarProof — Smart Contract Security Audit
+# Third-Party Security Audit Reports
 
-## Overview
+This directory contains the final reports from the independent third-party security audit of the Stellar-Spend smart contracts, as required by issue #118 before mainnet launch.
 
-A professional third-party security audit is required before mainnet launch.
-All three Soroban contracts handle real financial value (energy certificates on Stellar). A professional third-party security audit is required before mainnet launch.
+## Purpose
 
-| Item | Detail |
-|------|--------|
-| **Audit status** | In progress |
-| **Contracts in scope** | `energy_token`, `audit_registry`, `community_governance` |
-| **Target completion** | Q1 2025 |
-| **Report location** | This directory (`docs/audits/`) |
-| **Re-audit policy** | Required after any Critical/High finding remediation or significant contract change |
+The internal audit (`docs/security/SECURITY_AUDIT_REPORT.md`) identified 13 findings. Before mainnet, an independent third-party audit of all three contracts is required. This directory is the canonical location for publishing the results of that engagement, including the initial audit report and the re-audit of remediated findings.
 
-See [`/docs/AUDIT_SCOPE.md`](../AUDIT_SCOPE.md) for the full technical scope definition.
+## Expected Contents
 
----
+Once the engagement is complete, this directory will contain:
 
-## Audit Firm Selection
+- **Final third-party audit report** — the complete report delivered by the selected audit firm, covering all three contracts in scope per `docs/AUDIT_SCOPE.md`.
+- **Re-audit results** — the follow-up report confirming remediation of findings raised in the initial audit (including verification that all HIGH findings from the internal audit were remediated before the third-party audit began).
+- **Supporting artifacts** (optional) — any appendices, finding trackers, or remediation evidence provided by the firm.
 
-### Shortlisted firms (Soroban / Rust / Stellar experience)
+## Publishing Instructions
 
-| Firm | Specialization | Contact | Status |
-|------|---------------|---------|--------|
-| Least Authority | Rust, cryptographic protocols | contact@leastauthority.com | Pending RFP |
-| OtterSec | Rust smart contracts (Solana/Stellar) | contracts@osec.io | ✅ **Selected** |
-| Zellic | Smart contracts, Rust, blockchain | audit@zellic.io | Declined |
-| Cure53 | Web/API + cryptography | — | Pending RFP |
+When the audit report is received from the audit firm:
 
-### Selection criteria
-
----
-
-## Contracts in Scope
-
-| Contract | Path | Version | Lines (approx.) | Purpose |
-|----------|------|---------|-----------------|---------|
-| `energy_token` | `apps/contracts/energy_token/src/lib.rs` | 1.0.0 | ~430 | SEP-41 fungible energy certificate token |
-| `audit_registry` | `apps/contracts/audit_registry/src/lib.rs` | 1.0.0 | ~340 | Immutable on-chain anchor of meter reading hashes |
-| `community_governance` | `apps/contracts/community_governance/src/lib.rs` | 1.0.0 | ~640 | Cooperative proposal + voting with bitmap optimization |
-
-All contracts target **Soroban SDK 23.1.0** on Stellar and are written in Rust.
-
----
-
-## Audit Timeline
-
-| Phase | Target Date | Owner | Status |
-|-------|-------------|-------|--------|
-| Firm selection & RFP | Q3 2024 | Engineering lead | ✅ Done |
-| Engagement signed | Q3 2024 | Engineering + legal | ✅ Done |
-| Pre-audit code freeze | Q3 2024 | Engineering | ✅ Done |
-| Initial audit | Q4 2024 | OtterSec | ⏳ In progress |
-| Preliminary findings delivered | Q4 2024 | OtterSec | 🔲 Not started |
-| Remediation period | Q4 2024 | Engineering | 🔲 Not started |
-| Re-audit of Critical/High fixes | Q1 2025 | OtterSec | 🔲 Not started |
-| Final report published | Q1 2025 | OtterSec | 🔲 Not started |
-
----
-
-## Findings
-
-All findings will be documented here once the audit report is received.
-Sections below define the expected structure.
-
-### Critical (must fix before mainnet)
-
-_None identified — audit not yet performed._
-
-### High (must fix before mainnet)
-
-_None identified — audit not yet performed._
-
-### Medium (fix before mainnet or with documented risk acceptance)
-
-_None identified — audit not yet performed._
-
-### Low / Informational
-
-_None identified — audit not yet performed._
-
----
-
-## Pre-Audit Checklist
-
-The following items must be completed before handing off to the auditing firm.
-
-### Code readiness
-
-- [x] All three contracts compile cleanly (`cargo build --target wasm32-unknown-unknown`)
-- [x] Full unit test suite passes (`cargo test --all`)
-- [x] Property-based tests pass (`cargo test` in `apps/contracts/proptest/`)
-- [x] Fuzz targets defined for `mint`, `anchor`, and `vote`
-- [x] No `unwrap()` calls that could cause silent panics on untrusted input
-- [x] All access control checks verified (minter-only mint, signer-only anchor, admin-only admin ops)
-- [x] Overflow checks present for all i128/u32 arithmetic
-- [x] Reentrancy guard in `community_governance::vote()`
-- [x] Duplicate anchor prevention (`AlreadyAnchored` error + nonce idempotency)
-- [x] Double-vote prevention (bitmap-based, per-voter per-proposal)
-- [ ] Persistent storage TTL bump strategy documented
-
-### Documentation readiness
-
-- [x] Inline rustdoc on all public functions
-- [x] Invariants documented in module-level comments
-- [x] `AUDIT_SCOPE.md` up to date
-- [x] Deployment guide in `docs/DEPLOYMENT.md`
-- [x] Threat model in `docs/THREAT_MODEL.md`
-
-### Audit deliverables to request
-
-1. Findings report with severity ratings (Critical / High / Medium / Low / Informational)
-2. Concrete recommendations for each finding
-3. Confirmation of fixed findings after re-audit
-4. Final published report (PDF) for inclusion in this directory
-
----
-
-## Remediation Policy
-
-| Severity | Action required | Timeline |
-|----------|----------------|----------|
-| Critical | Must be fixed and re-audited before mainnet | Immediately |
-| High | Must be fixed and re-audited before mainnet | Before code freeze |
-| Medium | Fix before mainnet or provide written risk acceptance | 30 days |
-| Low / Info | Fix in next release cycle or accept with documentation | 90 days |
-
----
-
-## Re-Audit Requirements
-
-A re-audit **must** be performed after any of the following changes:
-
-- Remediation of any Critical or High finding
-- Changes to access control logic (mint authorization, anchor signer, admin roles)
-- Changes to token supply calculations or burn mechanics
-- Changes to voting mechanics or quorum/threshold logic
-- Addition of new entry points to any in-scope contract
-- Upgrade to a new major version of the Soroban SDK
-
-> When re-audit is triggered, create a new entry in `docs/audits/reaudit-YYYY-MM.md`
-> and link it from this file.
-
----
+1. **Verify completeness** — confirm the report covers the full scope defined in `docs/AUDIT_SCOPE.md` (all three contracts) and that it is the final, signed-off version.
+2. **Confirm no redactions are required** — the report is intended to be public. If the firm requires any redactions, coordinate with them before publishing and note the redactions in this README.
+3. **Add the report** — place the report file in this directory using a descriptive name, e.g.:
+   - `docs/audits/<firm-name>-audit-report-<YYYY-MM-DD>.pdf`
+   - `docs/audits/<firm-name>-reaudit-report-<YYYY-MM-DD>.pdf`
+4. **Update this README** — add an entry to the "Published Reports" table below with the firm name, report type, date, and a link to the file.
+5. **Cross-reference** — link the published report from `docs/security/SECURITY_AUDIT_REPORT.md` and the project root `README.md` so it is discoverable.
+6. **Open a PR** — submit the report and README update in a pull request referencing issue #118. Do not merge until the report has been reviewed for accuracy against the delivered version.
 
 ## Published Reports
 
-| Version | Date | Firm | Scope | Link |
-|---------|------|----------|-------|------|
-| 1.0.0 | Q1 2025 | OtterSec | All contracts | *Pending final report* |
+| Report | Firm | Date | Link |
+| ------ | ---- | ---- | ---- |
+| _Pending engagement_ | — | — | — |
 
-Reports will be published in this directory as `audit-YYYY-MM-<firm-slug>.pdf`
-once received and approved for disclosure.
+## Status
+
+- [ ] Audit firm selected and engaged
+- [ ] Scope defined per `docs/AUDIT_SCOPE.md`
+- [ ] All HIGH findings from internal audit remediated before third-party audit
+- [ ] Third-party audit report published in `docs/audits/`
+- [ ] Re-audit of remediated findings conducted
+
+> **Note:** This directory is a placeholder until the third-party audit is complete. Do not add speculative or draft reports here — only final, delivered reports should be published.

@@ -1,7 +1,7 @@
 # SolarProof — Threat Model
 
 **Methodology:** STRIDE  
-**Last reviewed:** 2026-04-24  
+**Last reviewed:** 2026-06-12  
 **Reviewer:** security-aware contributor
 
 ---
@@ -33,10 +33,11 @@ Supabase (off-chain store)
 | Asset | Confidentiality | Integrity | Availability |
 |---|---|---|---|
 | Meter Ed25519 private key | Critical | Critical | High |
-| `MINTER_SECRET_KEY` (Stellar signing key) | Critical | Critical | High |
+| Minter signing key (HSM-backed, non-extractable) | Critical | Critical | High |
 | On-chain reading hashes (audit_registry) | Public | Critical | High |
 | Energy token balances (energy_token) | Public | Critical | High |
 | Off-chain reading payloads (Supabase) | Medium | High | High |
+| Cooperative membership & scoping data | Medium | Critical | High |
 | Governance proposals & votes | Public | High | Medium |
 
 ---
@@ -46,11 +47,13 @@ Supabase (off-chain store)
 | Boundary | Trust level |
 |---|---|
 | Smart meter device | Trusted if Ed25519 keypair is uncompromised |
-| SolarProof API (Vercel) | Trusted server; holds `MINTER_SECRET_KEY` |
+| SolarProof API (Vercel) | Trusted server; delegates signing to HSM (key never leaves hardware) |
+| HSM (YubiKey / TPM) | Trusted; private key non-extractable, signing only |
 | Stellar network | Trusted (BFT consensus) |
 | Supabase | Trusted for availability; **not** trusted for integrity (hash is the source of truth) |
+| Cooperative tenants | Mutually untrusted — each cooperative must only see its own data |
 | Public verifier callers | Untrusted |
-| Community governance voters | Untrusted (Sybil-possible without token gating) |
+| Community governance voters | Untrusted (Sybil-mitigated via token-weighted voting) |
 
 ---
 
@@ -65,10 +68,10 @@ Supabase (off-chain store)
 **Residual risk:** Low — requires breaking Ed25519 or compromising the meter keypair.
 
 #### S2 — Impersonation of the minter
-**Attack vector:** Attacker submits a Stellar transaction calling `energy_token.mint()` without the minter's signature.  
+**Attack vector:** Attacker submits a Stellar transaction calling `energy_token.mint()` without the minter's signature, or attempts to steal/forge the minter signing key.  
 **Impact:** Unauthorized certificate minting.  
-**Mitigation:** `mint()` calls `minter.require_auth()` — Soroban rejects the transaction if the minter's Ed25519 signature is absent.  
-**Residual risk:** Low.
+**Mitigation:** `mint()` calls `minter.require_auth()` — Soroban rejects the transaction if the minter's Ed25519 signature is absent. The minter key is stored in an HSM (YubiKey / TPM) with a **non-extractable private key**; the API never holds the raw secret and instead requests hardware-backed signatures from the HSM (see `docs/HSM_INTEGRATION.md`, `docs/HSM_ONBOARDING.md`). Key rotation is performed via the `rotate-key` endpoint, which re-registers the new public key on-chain through the admin-only `set_minter()` path.  
+**Residual risk:** Low — key material cannot be exfiltrated from the HSM; compromise requires physical access to the device plus its PIN.
 
 ---
 
@@ -119,6 +122,12 @@ Supabase (off-chain store)
 **Mitigation (future):** Hardware HSM / TPM integration (Level 2 roadmap).  
 **Residual risk:** Medium — key extraction from software-only meters is feasible.
 
+#### I3 — Cross-cooperative data access
+**Attack vector:** A member or API caller belonging to cooperative A attempts to read or mutate meters, readings, or stats belonging to cooperative B — via the cooperative API routes (`/api/cooperative/me`, `/api/cooperative/stats`) or by querying Supabase directly.  
+**Impact:** Disclosure of another cooperative's meter registry and reading payloads; potential tampering with foreign records; loss of tenant isolation.  
+**Mitigation:** All cooperative-scoped records carry a `cooperative_id` column and every query is scoped by the authenticated caller's `cooperative_id` (derived server-side, never from client input). Supabase row-level security (RLS) policies enforce `cooperative_id = auth.jwt() -> 'cooperative_id'` on `meters`, `readings`, and related tables. The Supabase service-role key (which bypasses RLS) is used only in server-side code paths that explicitly re-apply cooperative scoping; it is never exposed to the client. Cooperative routes resolve membership from the session and return 403 for cross-cooperative requests.  
+**Residual risk:** Low — isolation depends on RLS policies and service-role usage discipline remaining correct; any new table must ship with RLS enabled and a cooperative-scoped policy.
+
 ---
 
 ### 4.5 Denial of Service
@@ -142,9 +151,8 @@ Supabase (off-chain store)
 #### E1 — Governance Sybil attack
 **Attack vector:** Attacker creates many Stellar addresses and votes multiple times on a proposal.  
 **Impact:** Proposal outcome manipulated.  
-**Mitigation (current):** Each address can vote once per proposal (enforced on-chain). Quorum is percentage-based.  
-**Mitigation (future):** Token-weighted voting (requires holding SPEC tokens).  
-**Residual risk:** Medium — 1-address-1-vote is Sybil-vulnerable without token gating.
+**Mitigation:** `community_governance` enforces **token-weighted voting** — a voter's influence is proportional to the SPEC token balance held at vote time, so splitting tokens across many addresses yields no additional weight. A per-proposal **voter-index bitmap** records which addresses have already voted, rejecting duplicate votes on-chain. Quorum is percentage-based over total eligible voting weight, and per-voter weight is capped by the contract's weight parameters.  
+**Residual risk:** Low–Medium — token-weighted voting raises the cost of Sybil attacks but remains vulnerable to large token accumulation (whale) and to vote-buying; monitor distribution of voting weight.
 
 #### E2 — Replay attack on anchor
 **Attack vector:** Network observer re-submits a previously valid signed reading to anchor it twice.  
@@ -168,8 +176,9 @@ Supabase (off-chain store)
 | Replay attack | Duplicate-hash rejection in audit_registry (E2) |
 | Contract exploit (unauthorized mint) | `require_auth()` in energy_token (S2) |
 | API abuse / flooding | Vercel rate limits + RLS (D1) |
-| Minter key leakage | Secret scanning + key rotation (I1) |
-| Governance manipulation | Per-address vote limit + future token gating (E1) |
+| Minter key leakage | HSM non-extractable key + secret scanning + rotate-key (S2, I1) |
+| Cross-cooperative access | `cooperative_id` scoping + RLS + service-role discipline (I3) |
+| Governance manipulation | Token-weighted voting + voter-index bitmap + quorum (E1) |
 | Storage expiry | TTL management (T2) — open risk before mainnet |
 
 ---
@@ -180,3 +189,14 @@ Supabase (off-chain store)
 - Vercel / hosting infrastructure compromise
 - Browser-side attacks on the public verifier UI
 - Supply-chain attacks on npm/cargo dependencies
+
+---
+
+## 7. Review Sign-off
+
+This threat model was reviewed against the current codebase (HSM signing, multi-cooperative data isolation, and governance Sybil mitigations) and is approved by:
+
+| Contributor | Role | Date |
+|---|---|---|
+| _TBD_ | Security-aware contributor | 2026-06-12 |
+| _TBD_ | Backend / contracts maintainer | 2026-06-12 |

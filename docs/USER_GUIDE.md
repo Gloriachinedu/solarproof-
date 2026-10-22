@@ -14,7 +14,8 @@
 5. [Retiring Certificates](#5-retiring-certificates)
 6. [Participating in Governance](#6-participating-in-governance)
 7. [Verifying a Certificate](#7-verifying-a-certificate)
-8. [Troubleshooting](#8-troubleshooting)
+8. [Cooperative Admin](#8-cooperative-admin)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
@@ -196,7 +197,111 @@ Anyone — including regulators and buyers — can verify a certificate without 
 
 ---
 
-## 8. Troubleshooting
+## 8. Cooperative Admin
+
+> **Audience:** This section is for users with the **Cooperative Admin** role (see [docs/PERSONAS.md](./PERSONAS.md) — Cooperative persona). Individual meter operators do not have access to these features.
+
+Cooperative admin features are available under **Settings → Cooperative** in the dashboard navigation.
+
+---
+
+### 8.1 Inviting Members
+
+Cooperative admins can invite new member operators via email. Invited users join with the **Operator** role and can register meters and submit readings.
+
+**Steps**
+
+1. Navigate to **Settings → Cooperative → Members**.
+2. Click **Invite Member**.
+3. Enter the new member's **email address** and optionally assign a **display name**.
+4. Click **Send Invitation**.
+
+The invited user receives an email with a sign-up link. Once they complete registration, they appear in the Members list with a **Pending** badge until their first login, then it changes to **Active**.
+
+> **Screenshot placeholder:** `docs/screenshots/10-invite-member.png`
+> *(Shows the Invite Member modal with the email field and Send Invitation button.)*
+
+**Managing existing members**
+
+| Action | How |
+|---|---|
+| View all members | Settings → Cooperative → Members |
+| Remove a member | Click the member row → **Remove Member** → confirm |
+| Change role | Click the member row → **Edit Role** (Admin / Operator) |
+
+---
+
+### 8.2 Viewing Cooperative Stats
+
+The cooperative stats page gives admins a fleet-wide view of energy generation and certificate activity.
+
+**Steps**
+
+1. Navigate to **Settings → Cooperative → Stats** (or use the shortcut card on the Dashboard).
+2. Use the **date range** pickers at the top to adjust the reporting window.
+3. Use the **Granularity** toggle to switch between daily, monthly, or yearly buckets.
+
+| Section | What it shows |
+|---|---|
+| **Summary cards** | Total kWh generated, certificates issued, certificates retired, active meters — all scoped to the selected date range |
+| **Trends chart** | kWh over time, broken down by the selected granularity |
+| **Per-meter table** | Each meter's contribution: kWh, reading count, last active date |
+
+> **Screenshot placeholder:** `docs/screenshots/11-coop-stats.png`
+> *(Shows the Stats page with summary cards, the trends line chart, and the per-meter breakdown table.)*
+
+**Exporting stats**
+
+Click **Export CSV** in the top-right of the per-meter table to download the current view as a CSV file. The export respects the active date range and granularity filters.
+
+---
+
+### 8.3 Suspending an Operator
+
+If a member is in breach of cooperative policy or their meter device is compromised, an admin can **suspend** that operator. A suspended operator's meters stop accepting new readings until the suspension is lifted.
+
+**Suspend an operator**
+
+1. Navigate to **Settings → Cooperative → Members**.
+2. Find the operator and click their row to open the detail panel.
+3. Click **Suspend Operator**.
+4. Enter a short **reason** (required for the audit log).
+5. Click **Confirm Suspension**.
+
+The operator's account is suspended immediately. Their existing readings and certificates are unaffected, but any new reading submission from their meters will be rejected with a `403 Forbidden` response.
+
+> **Screenshot placeholder:** `docs/screenshots/12-suspend-operator.png`
+> *(Shows the operator detail panel with the Suspend Operator button and the reason input.)*
+
+**Lift a suspension**
+
+1. Navigate to **Settings → Cooperative → Members**.
+2. Find the suspended operator (shown with a **Suspended** badge).
+3. Click their row → **Lift Suspension** → confirm.
+
+**Audit trail**
+
+All suspension and lift-suspension actions are recorded in the [Audit Log](#audit-log) under event types `operator.suspended` and `operator.suspension_lifted`.
+
+---
+
+### 8.4 Audit Log
+
+The audit log records every admin action taken in your cooperative.
+
+1. Navigate to **Settings → Cooperative → Audit Log**.
+2. Use the **event type** filter to narrow results (e.g. `certificate.retired`, `operator.suspended`).
+3. Each row shows: **timestamp**, **actor**, **event type**, and **affected resource**.
+
+You can also query the audit log programmatically via `GET /api/v1/audit-log` (see [docs/API.md](./API.md)).
+
+---
+
+*Guide reviewed against the Cooperative persona defined in [docs/PERSONAS.md](./PERSONAS.md).*
+
+---
+
+## 9. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|

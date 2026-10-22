@@ -99,6 +99,77 @@ export async function invalidateCert(...ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => redisDel(certCacheKey(id))))
 }
 
+// ── Token revocation ─────────────────────────────────────────────────────────
+
+const REVOCATION_TTL = 30 // seconds
+
+/**
+ * Build the Redis key for a token revocation cache entry.
+ *
+ * @param jti - JWT ID of the token.
+ * @returns Redis key string in the form `revoked:token:<jti>`.
+ */
+export function revocationCacheKey(jti: string) {
+  return `revoked:token:${jti}`
+}
+
+/**
+ * Retrieve the cached revocation status of a token.
+ * Falls back to `null` (cache miss) when Redis is unavailable.
+ *
+ * @param jti - JWT ID of the token.
+ * @returns `true` if revoked, `false` if not revoked, or `null` on a cache miss.
+ */
+export async function getCachedRevocation(jti: string): Promise<boolean | null> {
+  if (!UPSTASH_REDIS_REST_URL) return null
+  return redisGet<boolean>(revocationCacheKey(jti))
+}
+
+/**
+ * Cache the revocation status of a token with a 30-second TTL.
+ * No-op when Redis is unavailable.
+ *
+ * @param jti - JWT ID of the token.
+ * @param revoked - Whether the token has been revoked.
+ */
+export async function setCachedRevocation(jti: string, revoked: boolean): Promise<void> {
+  if (!UPSTASH_REDIS_REST_URL) return
+  await redisSet(revocationCacheKey(jti), revoked, REVOCATION_TTL)
+}
+
+const METER_REVOCATION_TTL = 300 // seconds
+
+export function meterRevocationCacheKey(meterId: string) {
+  return `revoked:meter:${meterId}`
+}
+
+export async function getCachedMeterRevocation(meterId: string): Promise<boolean | null> {
+  if (!UPSTASH_REDIS_REST_URL) return null
+  try {
+    return await redisGet<boolean>(meterRevocationCacheKey(meterId))
+  } catch {
+    return null
+  }
+}
+
+export async function setCachedMeterRevocation(meterId: string, revoked: boolean): Promise<void> {
+  if (!UPSTASH_REDIS_REST_URL) return
+  try {
+    await redisSet(meterRevocationCacheKey(meterId), revoked, METER_REVOCATION_TTL)
+  } catch {
+    // The database remains authoritative when Redis is unavailable.
+  }
+}
+
+export async function invalidateMeterRevocation(meterId: string): Promise<void> {
+  if (!UPSTASH_REDIS_REST_URL) return
+  try {
+    await redisDel(meterRevocationCacheKey(meterId))
+  } catch {
+    // A short TTL bounds stale revocation state if invalidation is unavailable.
+  }
+}
+
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
 const RATE_LIMIT_WINDOW = 60 // seconds

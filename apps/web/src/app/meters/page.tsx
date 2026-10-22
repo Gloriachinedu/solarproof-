@@ -1,9 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { WalletGate } from '@/components/wallet-gate'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { PlusCircle, ShieldOff } from 'lucide-react'
+import { ErrorBoundary } from '@/components/error-boundary'
+import { usePersistentFilters } from '@/hooks/use-persistent-filters'
 
 interface Meter {
   id: string
@@ -131,7 +133,7 @@ function cloneWithA11y(
 }
 
 const INPUT_BASE =
-  'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500'
+  'w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500'
 
 // ---------------------------------------------------------------------------
 // Register form
@@ -338,7 +340,7 @@ function RegisterForm({ onSuccess }: { onSuccess: () => void }) {
         disabled={mutation.isPending || hasFieldErrors}
         aria-busy={mutation.isPending}
         aria-disabled={mutation.isPending || hasFieldErrors}
-        className="mt-4 inline-flex items-center gap-2 rounded-md bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-4 inline-flex items-center gap-2 rounded-md bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-yellow-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {mutation.isPending ? (
           <svg
@@ -437,14 +439,62 @@ function RevokeDialog({
 // ---------------------------------------------------------------------------
 // Meters page
 // ---------------------------------------------------------------------------
+
+interface MeterFilters {
+  status: 'all' | 'active' | 'revoked'
+  group: string
+  tag: string
+}
+
+const DEFAULT_METER_FILTERS: MeterFilters = {
+  status: 'all',
+  group: '',
+  tag: '',
+}
+
 export default function MetersPage() {
   const qc = useQueryClient()
   const [revokeTarget, setRevokeTarget] = useState<Meter | null>(null)
+
+  const { filters, setFilter, resetFilters, isRestored } = usePersistentFilters<MeterFilters>(
+    'meters',
+    DEFAULT_METER_FILTERS
+  )
 
   const { data: meters, isLoading, error } = useQuery({
     queryKey: ['meters'],
     queryFn: fetchMeters,
   })
+
+  const groups = useMemo(() => {
+    const set = new Set<string>()
+    meters?.forEach((m) => {
+      if (m.meter_group) set.add(m.meter_group)
+    })
+    return Array.from(set).sort()
+  }, [meters])
+
+  const tags = useMemo(() => {
+    const set = new Set<string>()
+    meters?.forEach((m) => m.tags.forEach((t) => set.add(t)))
+    return Array.from(set).sort()
+  }, [meters])
+
+  const filteredMeters = useMemo(() => {
+    if (!meters) return meters
+    return meters.filter((m) => {
+      if (filters.status === 'active' && !m.active) return false
+      if (filters.status === 'revoked' && m.active) return false
+      if (filters.group && m.meter_group !== filters.group) return false
+      if (filters.tag && !m.tags.includes(filters.tag)) return false
+      return true
+    })
+  }, [meters, filters])
+
+  const filtersActive =
+    filters.status !== DEFAULT_METER_FILTERS.status ||
+    filters.group !== DEFAULT_METER_FILTERS.group ||
+    filters.tag !== DEFAULT_METER_FILTERS.tag
 
   const revokeMutation = useMutation({
     mutationFn: revokeMeter,
@@ -469,6 +519,85 @@ export default function MetersPage() {
           </p>
         )}
 
+        <div
+          className="mb-4 flex flex-wrap items-end gap-3"
+          role="group"
+          aria-label="Meter filters"
+        >
+          <div>
+            <label
+              htmlFor="filter-status"
+              className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+            >
+              Status
+            </label>
+            <select
+              id="filter-status"
+              value={filters.status}
+              onChange={(e) => setFilter('status', e.target.value as MeterFilters['status'])}
+              className={INPUT_BASE}
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="revoked">Revoked</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="filter-group"
+              className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+            >
+              Group
+            </label>
+            <select
+              id="filter-group"
+              value={filters.group}
+              onChange={(e) => setFilter('group', e.target.value)}
+              className={INPUT_BASE}
+            >
+              <option value="">All groups</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="filter-tag"
+              className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+            >
+              Label
+            </label>
+            <select
+              id="filter-tag"
+              value={filters.tag}
+              onChange={(e) => setFilter('tag', e.target.value)}
+              className={INPUT_BASE}
+            >
+              <option value="">All labels</option>
+              {tags.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={resetFilters}
+            disabled={!filtersActive}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            Reset filters
+          </button>
+        </div>
+
+        <ErrorBoundary inline label="Meter list">
         <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
           <div className="overflow-x-auto">
             <table
@@ -489,15 +618,17 @@ export default function MetersPage() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
-                      Loading…
-                    </td>
-                  </tr>
-                ) : meters && meters.length > 0 ? (
-                  meters.map((m) => (
+              <tbody
+                className="divide-y divide-gray-100 dark:divide-gray-800"
+                aria-busy={isLoading}
+                aria-live="polite"
+              >
+                {isLoading || !isRestored ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <TableRowSkeleton key={i} cols={6} />
+                  ))
+                ) : filteredMeters && filteredMeters.length > 0 ? (
+                  filteredMeters.map((m) => (
                     <tr
                       key={m.id}
                       className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40"
@@ -558,7 +689,9 @@ export default function MetersPage() {
                       colSpan={6}
                       className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400"
                     >
-                      No meters registered yet.
+                      {meters && meters.length > 0
+                        ? 'No meters match the current filters.'
+                        : 'No meters registered yet.'}
                     </td>
                   </tr>
                 )}
@@ -566,6 +699,7 @@ export default function MetersPage() {
             </table>
           </div>
         </div>
+        </ErrorBoundary>
 
         {revokeTarget && (
           <RevokeDialog

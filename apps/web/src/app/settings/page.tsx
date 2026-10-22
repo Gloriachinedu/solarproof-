@@ -1,13 +1,32 @@
 'use client'
 
 import { useTheme } from 'next-themes'
-import { useQuery } from '@tanstack/react-query'
-import { Moon, Sun, Building2, User } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Moon, Sun, Building2, User, Bell } from 'lucide-react'
 import { useEffect, useState } from 'react'
+
+type NotificationPreferences = {
+  inApp: boolean
+  email: boolean
+  emailAddress: string
+  webhook: boolean
+  webhookUrl: string
+  webhookSecret: string
+}
+
+const DEFAULT_PREFERENCES: NotificationPreferences = {
+  inApp: true,
+  email: false,
+  emailAddress: '',
+  webhook: false,
+  webhookUrl: '',
+  webhookSecret: ''
+}
 
 export default function SettingsPage() {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const [filtersReset, setFiltersReset] = useState(false)
   useEffect(() => setMounted(true), [])
 
   const isDark = mounted && resolvedTheme === 'dark'
@@ -21,8 +40,61 @@ export default function SettingsPage() {
     }
   })
 
+  const queryClient = useQueryClient()
+  const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFERENCES)
+  const [savedMessage, setSavedMessage] = useState<string | null>(null)
+
+  const { data: notificationPrefs, isLoading: isLoadingPrefs } = useQuery({
+    queryKey: ['notification-preferences'],
+    queryFn: async () => {
+      const res = await fetch('/api/notifications/preferences')
+      if (!res.ok) throw new Error('Failed to load notification preferences')
+      return res.json()
+    }
+  })
+
+  useEffect(() => {
+    if (notificationPrefs) {
+      setPreferences({ ...DEFAULT_PREFERENCES, ...notificationPrefs })
+    }
+  }, [notificationPrefs])
+
+  const savePreferences = useMutation({
+    mutationFn: async (next: NotificationPreferences) => {
+      const res = await fetch('/api/notifications/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next)
+      })
+      if (!res.ok) throw new Error('Failed to save notification preferences')
+      return res.json()
+    },
+    onSuccess: (data) => {
+      if (data) setPreferences({ ...DEFAULT_PREFERENCES, ...data })
+      queryClient.invalidateQueries({ queryKey: ['notification-preferences'] })
+      setSavedMessage('Notification preferences saved.')
+    },
+    onError: () => {
+      setSavedMessage('Failed to save notification preferences. Please try again.')
+    }
+  })
+
+  function updatePreference<K extends keyof NotificationPreferences>(key: K, value: NotificationPreferences[K]) {
+    setSavedMessage(null)
+    setPreferences((prev) => ({ ...prev, [key]: value }))
+  }
+
   function toggleTheme() {
     setTheme(isDark ? 'light' : 'dark')
+  }
+
+  function resetDashboardFilters() {
+    if (typeof window === 'undefined') return
+    const userId = window.localStorage.getItem('userId') || 'anonymous'
+    for (const key of DASHBOARD_FILTER_KEYS) {
+      window.localStorage.removeItem(`${key}:${userId}`)
+    }
+    setFiltersReset(true)
   }
 
   return (
@@ -61,7 +133,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Theme Settings */}
+        {/* Theme Settings - Issue #22: Dark mode toggle with localStorage persistence */}
         <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -81,6 +153,149 @@ export default function SettingsPage() {
               {isDark ? 'Light mode' : 'Dark mode'}
             </button>
           </div>
+        </section>
+
+        {/* Notifications - Issue #121: Real-time certificate alerts */}
+        <section className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-950">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-900/30">
+              <Bell className="h-5 w-5 text-yellow-600 dark:text-yellow-400" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Notifications</h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                Get alerted when certificate status changes (issued, verified, failed, retired).
+              </p>
+            </div>
+          </div>
+
+          {isLoadingPrefs ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading notification preferences...</p>
+          ) : (
+            <div className="space-y-5">
+              {/* In-app */}
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">In-app (toast)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Show a toast notification in the dashboard.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={preferences.inApp}
+                  aria-label="Toggle in-app notifications"
+                  onClick={() => updatePreference('inApp', !preferences.inApp)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
+                    preferences.inApp ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                      preferences.inApp ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Email */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Email</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Send certificate alerts to your email address.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={preferences.email}
+                    aria-label="Toggle email notifications"
+                    onClick={() => updatePreference('email', !preferences.email)}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
+                      preferences.email ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-700'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        preferences.email ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <input
+                  type="email"
+                  value={preferences.emailAddress}
+                  onChange={(e) => updatePreference('emailAddress', e.target.value)}
+                  placeholder="you@example.com"
+                  aria-label="Notification email address"
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              {/* Webhook */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Webhook</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      POST certificate events to an external endpoint.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={preferences.webhook}
+                    aria-label="Toggle webhook notifications"
+                    onClick={() => updatePreference('webhook', !preferences.webhook)}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
+                      preferences.webhook ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-700'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        preferences.webhook ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <input
+                  type="url"
+                  value={preferences.webhookUrl}
+                  onChange={(e) => updatePreference('webhookUrl', e.target.value)}
+                  placeholder="https://example.com/webhooks/certificates"
+                  aria-label="Webhook URL"
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+                <input
+                  type="password"
+                  value={preferences.webhookSecret}
+                  onChange={(e) => updatePreference('webhookSecret', e.target.value)}
+                  placeholder="Signing secret"
+                  aria-label="Webhook signing secret"
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                {savedMessage ? (
+                  <p className="text-xs text-gray-600 dark:text-gray-400">{savedMessage}</p>
+                ) : (
+                  <span />
+                )}
+                <button
+                  type="button"
+                  onClick={() => savePreferences.mutate(preferences)}
+                  disabled={savePreferences.isPending}
+                  className="rounded-md bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savePreferences.isPending ? 'Saving...' : 'Save preferences'}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
     </div>

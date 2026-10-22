@@ -1,0 +1,58 @@
+# docker-compose.ci.yml — CI override for docker-compose.yml
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+#
+# This file lowers resource limits to match typical CI runner specs
+# (e.g. GitHub-hosted ubuntu-latest: 2 vCPU, 7 GB RAM).
+#
+# Minimum host requirements for CI:
+#   CPU:    2 vCPU
+#   Memory: 4 GB available to Docker
+#   Disk:   10 GB free
+
+version: "3.9"
+
+services:
+  web:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  supabase-db:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+
+  redis-cache:
+    # Override maxmemory for CI — keeps it well under the container limit
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 192M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+  redis-queue:
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy noeviction
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 192M
+        reservations:
+          cpus: "0.05"
+          memory: 64M

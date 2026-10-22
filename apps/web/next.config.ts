@@ -4,16 +4,25 @@ import createNextIntlPlugin from 'next-intl/plugin'
 
 const withNextIntl = createNextIntlPlugin('./src/i18n.ts')
 
+// OWASP-recommended security headers applied to every route.
+// Documented in SECURITY.md — keep both in sync when changing values.
 const securityHeaders = [
+  // HSTS: enforce HTTPS for at least one year, including all subdomains.
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  // Prevent the app from being framed (clickjacking protection).
   { key: 'X-Frame-Options', value: 'DENY' },
+  // Disable MIME type sniffing.
   { key: 'X-Content-Type-Options', value: 'nosniff' },
+  // Limit referrer information leaked to other origins.
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  // Restrict powerful browser features to same-origin only.
   {
     key: 'Permissions-Policy',
     value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   },
   {
+    // Enforce mode (not Report-Only) in all environments.
+    // Violations are POSTed to /api/csp-report which forwards them to Sentry.
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
@@ -23,6 +32,7 @@ const securityHeaders = [
       "font-src 'self'",
       "connect-src 'self' https://*.supabase.co https://soroban-testnet.stellar.org https://soroban.stellar.org wss://*.supabase.co",
       "frame-ancestors 'none'",
+      "report-uri /api/csp-report",
     ].join('; '),
   },
 ]
@@ -78,6 +88,7 @@ const nextConfig: NextConfig = {
     return config
   },
   async headers() {
+    // Apply security headers to all routes, including API and static assets.
     return [{ source: '/(.*)', headers: securityHeaders }]
   },
 }

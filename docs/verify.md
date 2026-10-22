@@ -150,3 +150,9 @@ The response is JSON with the same certificate, on-chain proof, and meter proof 
 **Q: Who can see my certificate?**
 
 The verifier is fully public — no login required. Anyone with the certificate ID or hash can look it up. Certificate IDs are not guessable (they are UUIDs), so a certificate is effectively private unless you share the ID.
+
+---
+
+**Q: I got a "429 Too Many Requests" error. What does that mean?**
+
+To keep the public verifier available to everyone and prevent automated scraping, lookups are rate limited to **30 requests per minute per IP address**. If you exceed this limit you will receive an HTTP `429` response with a `Retry-After` header indicating how many seconds to wait. Pause for that period, then retry your lookup. If you need higher-volume access, see [docs/ABUSE_PROTECTION.md](ABUSE_PROTECTION.md) for details on the limits and options.

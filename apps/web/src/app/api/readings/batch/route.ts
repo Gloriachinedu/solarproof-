@@ -6,6 +6,8 @@ import { anchorReading, mintCertificates } from '@/lib/stellar'
 import { computeReadingHash } from '@/lib/crypto'
 import { kwhToStroops } from '@solarproof/stellar'
 import { invalidateCert } from '@/lib/cache'
+import { getIdempotentResponse, storeIdempotentResponse } from '@/lib/idempotency'
+import { isApiKeyExpired } from '@/lib/meter-api-keys'
 
 const ReadingSchema = z.object({
   meter_id: z.string().uuid(),
@@ -37,9 +39,21 @@ type ReadingResult =
  * Accepts up to 100 signed meter readings. Each is validated, anchored,
  * and minted independently. Returns per-reading status.
  *
+ * Supports idempotency via the `Idempotency-Key` header. Duplicate requests
+ * with the same key return the cached response without re-processing.
+ *
  * Body: Array of { meter_id, kwh, timestamp, signature_hex }
  */
 export async function POST(req: NextRequest) {
+  // --- Idempotency check ---
+  const idempotencyKey = req.headers.get('Idempotency-Key')
+  if (idempotencyKey) {
+    const cached = await getIdempotentResponse(idempotencyKey)
+    if (cached) {
+      return NextResponse.json(cached.body, { status: cached.status })
+    }
+  }
+
   const body = await req.json().catch(() => null)
   const parsed = BatchSchema.safeParse(body)
   if (!parsed.success) {
@@ -49,13 +63,13 @@ export async function POST(req: NextRequest) {
   const db = createServiceClient()
   const readings = parsed.data
 
-type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; cooperatives: { admin_address: string } | null }
+type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; api_key_expires_at: string | null; cooperatives: { admin_address: string } | null }
 
   // Fetch all unique meters in one query
   const meterIds = [...new Set(readings.map(r => r.meter_id))]
   const { data: meters } = await db
     .from('meters')
-    .select('id, pubkey_hex, cooperative_id, revoked_at, cooperatives(admin_address)')
+    .select('id, pubkey_hex, cooperative_id, revoked_at, api_key_expires_at, cooperatives(admin_address)')
     .in('id', meterIds)
     .eq('active', true)
     .is('revoked_at', null) as { data: (MeterRow & { revoked_at: string | null })[] | null }
@@ -68,6 +82,10 @@ type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; cooper
 
       const meter = meterMap.get(meter_id)
       if (!meter) return { index, status: 'error', error: 'Meter not found or inactive', code: 404 }
+
+      if (isApiKeyExpired(meter.api_key_expires_at)) {
+        return { index, status: 'error', error: 'Meter API key expired', code: 401 }
+      }
 
       const kwhStroops = kwhToStroops(kwh)
       const readingHash = computeReadingHash(meter_id, kwhStroops, BigInt(timestamp))
@@ -136,5 +154,11 @@ type MeterRow = { id: string; pubkey_hex: string; cooperative_id: string; cooper
   const failed = results.length - succeeded
   const httpStatus = succeeded === 0 ? 400 : 207
 
-  return NextResponse.json({ succeeded, failed, results }, { status: httpStatus })
+  const responseBody = { succeeded, failed, results }
+
+  if (idempotencyKey) {
+    await storeIdempotentResponse(idempotencyKey, { body: responseBody, status: httpStatus })
+  }
+
+  return NextResponse.json(responseBody, { status: httpStatus })
 }

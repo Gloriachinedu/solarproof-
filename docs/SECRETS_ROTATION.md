@@ -58,11 +58,38 @@ Acceptance Criteria
   - Rotate all related credentials.
   - Review and improve access controls.
 
-8. Automation suggestions
+8. Rotation Schedule (per secret type)
 
-- Use scripts or CI jobs to perform the staged rollout and verification steps. Example: `scripts/rotate-secret.sh` which will create new secret, update environment, trigger smoke tests, and finalize rotation.
+| Secret | Max Age | Owner | Procedure |
+|--------|---------|-------|-----------|
+| `SUPABASE_SERVICE_ROLE_KEY` | 90 days | backend-team | §4 GitHub Secrets |
+| `MINTER_SECRET_KEY` | 180 days | contracts-team | §5 Stellar Keys |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 365 days | backend-team | §4 GitHub Secrets |
+| `STELLAR_TESTNET_SECRET_KEY` | 180 days | contracts-team | §5 Stellar Keys |
+| `VERCEL_TOKEN` | 90 days | devops-team | §6 Service Role Credentials |
+| `TURBO_TOKEN` | 90 days | devops-team | §6 Service Role Credentials |
 
-9. References
+9. Automation — Rotation Reminder CI Job
+
+The workflow `.github/workflows/secrets-rotation-reminder.yml` runs automatically on the 1st of every month at 09:00 UTC and can also be triggered manually via `workflow_dispatch`.
+
+**What it does:**
+- Reads secret `updated_at` timestamps from the GitHub API.
+- Compares each secret's age against the rotation schedule above.
+- Creates a GitHub issue for every secret that exceeds its max age (skips if an open issue already exists for that secret).
+- Supports a `dry_run` input to report without creating issues.
+
+**Trigger manually:**
+```bash
+gh workflow run secrets-rotation-reminder.yml --field dry_run=true
+```
+
+**Gitleaks:**
+The `secret-scanning.yml` workflow runs Gitleaks on every push and pull request to `main`/`develop` and on a weekly schedule. The `.gitleaks.toml` configuration file in the repo root controls which patterns are scanned.
+
+10. References
 - See `docs/DEPLOYMENT.md` and repository CI config for current secret usage patterns.
+- Automation workflow: `.github/workflows/secrets-rotation-reminder.yml`
+- Secret scanning workflow: `.github/workflows/secret-scanning.yml`
 
-Link to issue: #527
+Link to issue: #527 | #72
